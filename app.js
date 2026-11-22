@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-13';
+  const APP_VERSION = '2026.11.23-14';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1400,18 +1400,42 @@
     else if (a.dataset.drAct === 'new-chat') { chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); setTimeout(() => { const i = $('#ask-in'); if (i) i.focus(); }, 280); }
     else if (a.dataset.drAct === 'folders') { projView = 'list'; go('ask'); }
   });
-  // Swipe in from the left edge to open; swipe left on the menu to close.
-  let edge = null;
+  // The menu follows your finger: drag it in from the left edge, or drag it back closed. Let go and it settles
+  // open or closed depending on how far and how fast you moved.
+  let dd = null;
+  const dEase = 'transform .24s cubic-bezier(.22,.8,.26,1)';
   document.addEventListener('touchstart', (e) => {
-    edge = null; if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
+    dd = null; if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
     const p = e.touches[0], open = document.body.classList.contains('dr-open');
-    if (open || p.clientX <= 22) edge = { x: p.clientX, y: p.clientY, open };
+    if (open || p.clientX <= 22) dd = { x: p.clientX, y: p.clientY, open, lock: null, lx: p.clientX, lt: Date.now(), v: 0, pos: 0 };
   }, { passive: true });
-  document.addEventListener('touchend', (e) => {
-    if (!edge) return; const p = e.changedTouches[0], dx = p.clientX - edge.x, dy = p.clientY - edge.y, was = edge; edge = null;
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    if (!was.open && dx > 0) openDrawer(); else if (was.open && dx < 0) closeDrawer();
+  document.addEventListener('touchmove', (e) => {
+    if (!dd) return;
+    const p = e.touches[0], dx = p.clientX - dd.x, dy = p.clientY - dd.y;
+    if (dd.lock === null) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dx) <= Math.abs(dy) * 1.1 || (!dd.open && dx < 0)) { dd = null; return; }
+      dd.lock = true; dd.W = drawer.offsetWidth || 300;
+      if (!dd.open) { renderDrawer(); drawerBack.hidden = false; drawer.setAttribute('aria-hidden', 'false'); }
+      drawer.style.transition = 'none'; drawerBack.style.transition = 'none';
+    }
+    e.preventDefault();
+    const now = Date.now(); if (now > dd.lt) { dd.v = (p.clientX - dd.lx) / (now - dd.lt); dd.lx = p.clientX; dd.lt = now; }
+    const x = Math.max(-dd.W, Math.min(0, (dd.open ? 0 : -dd.W) + dx)); dd.pos = x;
+    drawer.style.transform = `translate3d(${x}px,0,0)`; drawerBack.style.opacity = String(1 + x / dd.W);
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    if (!dd || !dd.lock) { dd = null; return; }
+    const was = dd; dd = null;
+    const v = Date.now() - was.lt > 90 ? 0 : was.v;
+    const open = v > 0.3 ? true : v < -0.3 ? false : was.pos > -was.W / 2;
+    drawer.style.transition = dEase; drawerBack.style.transition = 'opacity .24s';
+    void drawer.offsetWidth;
+    if (open) document.body.classList.add('dr-open'); else document.body.classList.remove('dr-open');
+    drawer.style.transform = ''; drawerBack.style.opacity = '';
+    setTimeout(() => { drawer.style.transition = ''; drawerBack.style.transition = ''; if (!open) { drawerBack.hidden = true; drawer.setAttribute('aria-hidden', 'true'); } }, 260);
   }, { passive: true });
+  document.addEventListener('touchcancel', () => { if (dd && dd.lock) { drawer.style.transition = ''; drawer.style.transform = ''; drawerBack.style.transition = ''; drawerBack.style.opacity = ''; if (!dd.open) drawerBack.hidden = true; } dd = null; }, { passive: true });
 
   // ---------- Swipe navigation (phones) ----------
   // The screen follows your finger. Swipe left for the next tab, right for the previous one; on other screens

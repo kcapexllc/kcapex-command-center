@@ -31,10 +31,11 @@ export default async (req) => {
   if (!authorized(req)) return json({ error: "Not signed in" }, 401);
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   // Netlify AI Gateway injects ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL; NETLIFY_AI_GATEWAY_* is the explicit fallback pair.
-  const gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
-  if (!process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
+  // KC_ANTHROPIC_KEY is the owners' own Anthropic key: billed by Anthropic directly instead of Netlify credits.
+  const ownKey = process.env.KC_ANTHROPIC_KEY, gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
+  if (!ownKey && !process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
     const seen = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "NETLIFY_AI_GATEWAY_KEY", "NETLIFY_AI_GATEWAY_URL"].filter((k) => process.env[k]);
-    return json({ error: "Claude isn't available right now: Netlify's AI Gateway is not supplying a key to this app. Check that AI features are on and AI credits remain in your Netlify team, or add your own ANTHROPIC_API_KEY in Netlify.", seen }, 503);
+    return json({ error: "Claude isn't available right now: Netlify's AI Gateway is not supplying a key to this app. Check that AI features are on and AI credits remain in your Netlify team, or add your own Anthropic key as KC_ANTHROPIC_KEY in Netlify.", seen }, 503);
   }
 
   let body;
@@ -51,7 +52,7 @@ export default async (req) => {
     ...history,
   ];
 
-  const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
+  const client = ownKey ? new Anthropic({ apiKey: ownKey, baseURL: "https://api.anthropic.com" }) : process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
   const params = { model: MODEL, max_tokens: 4000, system: SYSTEM, messages };
   // Server-side refusal fallbacks are supported on Opus and Sonnet models, not Haiku.
   const canFallback = !/haiku/i.test(MODEL);
@@ -63,7 +64,7 @@ export default async (req) => {
     const text = res.content.filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
     return json({ text: text || "(no answer)" });
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) return json({ error: "The Anthropic API key in Netlify was rejected. Check ANTHROPIC_API_KEY." }, 502);
+    if (e instanceof Anthropic.AuthenticationError) return json({ error: "The Anthropic API key in Netlify was rejected. Check KC_ANTHROPIC_KEY." }, 502);
     if (e instanceof Anthropic.RateLimitError) return json({ error: "Claude is busy right now. Try again in a minute." }, 429);
     if (e instanceof Anthropic.APIError) return json({ error: `Claude error ${e.status}: ${e.message}` }, 502);
     return json({ error: "Could not reach Claude." }, 502);

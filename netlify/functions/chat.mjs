@@ -176,17 +176,18 @@ export default async (req) => {
   const history = (Array.isArray(body.messages) ? body.messages : []).filter((m) => m && (m.role === "user" || m.role === "assistant")).slice(-30);
   if (!history.length || history[history.length - 1].role !== "user") return new Response(JSON.stringify({ error: "Ask something first" }), { status: 400 });
 
-  const gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
+  // KC_ANTHROPIC_KEY is the owners' own Anthropic key: billed by Anthropic directly instead of Netlify credits.
+  const ownKey = process.env.KC_ANTHROPIC_KEY, gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
   const enc = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const send = (o) => controller.enqueue(enc.encode(JSON.stringify(o) + "\n"));
       try {
-        if (!process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
-          send({ t: "error", d: "Claude isn't available right now: Netlify's AI Gateway is not supplying a key. Check that AI features are on and AI credits remain in your Netlify team, or add your own ANTHROPIC_API_KEY in Netlify." });
+        if (!ownKey && !process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
+          send({ t: "error", d: "Claude isn't available right now: Netlify's AI Gateway is not supplying a key. Check that AI features are on and AI credits remain in your Netlify team, or add your own Anthropic key as KC_ANTHROPIC_KEY in Netlify." });
           return;
         }
-        const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
+        const client = ownKey ? new Anthropic({ apiKey: ownKey, baseURL: "https://api.anthropic.com" }) : process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
         const store = getStore({ name: "pipeline", consistency: "strong" });
         const messages = toApiMessages(history, body.snapshot);
         for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -215,7 +216,7 @@ export default async (req) => {
       } catch (e) {
         let msg = "Something went wrong reaching Claude. Try again.";
         if (e instanceof Anthropic.RateLimitError) msg = "Claude is busy right now. Try again in a minute.";
-        else if (e instanceof Anthropic.AuthenticationError) msg = "The Claude key was rejected. Check AI features or ANTHROPIC_API_KEY in Netlify.";
+        else if (e instanceof Anthropic.AuthenticationError) msg = "The Claude key was rejected. Check KC_ANTHROPIC_KEY in Netlify.";
         else if (e instanceof Anthropic.BadRequestError) msg = `Claude couldn't read that request: ${e.message}`;
         else if (e instanceof Anthropic.APIError) msg = `Claude error ${e.status}: ${e.message}`;
         send({ t: "error", d: msg });

@@ -1,61 +1,992 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>KCapex Command Center</title>
-  <meta name="description" content="KCapex internal GovCon command center: bids, leads, jobs, contracts and messages." />
-  <meta name="theme-color" content="#0b1220" />
-  <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
-  <link rel="icon" href="icons/icon-192.png" type="image/png" />
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="KCapex" />
-  <link rel="stylesheet" href="styles.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KCAPEX Pipeline</title>
+<meta name="description" content="KCAPEX internal GovCon pipeline: bids, quick-turn, follow-ups, people, subs and past performance.">
+<meta name="theme-color" content="#f7f5fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#140a24" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="KCAPEX">
+<script src="claude-shim.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f7f5fb; --card:#ffffff; --ink:#1a0b2e; --ink2:#4b4560; --mute:#8a84a0; --line:#e6e0f3;
+  --brand:#4c1d95; --brand2:#7c3aed; --lav:#ede4ff; --lav2:#c4b5fd; --red:#b42318; --redbg:#fde8e6; --green:#1f7a4d; --greenbg:#e3f5ea; --amber:#9a5b00; --amberbg:#fff1d6;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#140a24; --card:#1f1233; --ink:#f3eefc; --ink2:#cfc6e4; --mute:#8f86a8; --line:#332351;
+  --brand:#c4b5fd; --brand2:#a78bfa; --lav:#2b1a4a; --lav2:#4c2d86; --red:#ff8a80; --redbg:#4a1a17; --green:#7ee2a8; --greenbg:#153d2a; --amber:#ffcf7a; --amberbg:#3d2b0a; }}
+:root[data-theme="dark"]{
+  --paper:#140a24; --card:#1f1233; --ink:#f3eefc; --ink2:#cfc6e4; --mute:#8f86a8; --line:#332351;
+  --brand:#c4b5fd; --brand2:#a78bfa; --lav:#2b1a4a; --lav2:#4c2d86; --red:#ff8a80; --redbg:#4a1a17; --green:#7ee2a8; --greenbg:#153d2a; --amber:#ffcf7a; --amberbg:#3d2b0a; }
+html{scroll-padding-top:env(safe-area-inset-top,0px)} html,body{height:100%}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:Poppins,"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--brand2)}
+.app{max-width:760px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--paper);padding:14px 18px 8px;display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.wordmark{font-weight:700;font-size:20px;letter-spacing:.5px;color:var(--brand)}
+.wordmark small{font-weight:500;color:var(--mute);letter-spacing:0;font-size:13px;margin-left:8px}
+.sync{font-size:12px;color:var(--mute)}
+main{flex:1;padding:4px 18px 96px}
+h1{font-size:26px;line-height:1.15;margin:12px 0 4px;font-weight:600}
+h2{font-size:16px;margin:22px 0 8px;font-weight:600;color:var(--ink2)}
+p{margin:0 0 10px}
+.sub{color:var(--mute);font-size:13px}
+.btn{border:0;border-radius:10px;padding:11px 16px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.btn.ghost{background:var(--lav);color:var(--brand)} .btn.line{background:transparent;border:1.5px solid var(--line);color:var(--ink2)}
+.btn.danger{background:var(--redbg);color:var(--red)} .btn:disabled{opacity:.5;cursor:default}
+.btn.sm{padding:7px 12px;font-size:13px;border-radius:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:6px 0 10px;-webkit-overflow-scrolling:touch}
+.chip{white-space:nowrap;border-radius:999px;padding:6px 12px;border:1.5px solid var(--line);background:var(--card);font-size:13px;cursor:pointer;color:var(--ink2)}
+.chip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer}
+.card.static{cursor:default}
+.opp{display:grid;grid-template-columns:64px 1fr;gap:14px;align-items:start}
+.days{font-size:30px;font-weight:700;line-height:1;color:var(--brand)}
+.days small{display:block;font-size:11px;font-weight:500;color:var(--mute);margin-top:3px}
+.days.hot{color:var(--red)} .days.done{color:var(--mute)}
+.ttl{font-weight:600;line-height:1.3} .meta{color:var(--mute);font-size:13px;margin-top:2px}
+.tag{display:inline-block;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;background:var(--lav);color:var(--brand);margin-top:6px;margin-right:4px}
+.tag.red{background:var(--redbg);color:var(--red)} .tag.green{background:var(--greenbg);color:var(--green)} .tag.amber{background:var(--amberbg);color:var(--amber)}
+.empty{border:1.5px dashed var(--line);border-radius:14px;padding:22px 18px;color:var(--mute);text-align:center}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 6px calc(8px + env(safe-area-inset-bottom,0px));z-index:6}
+nav.tabs button{background:none;border:0;flex:1;min-width:0;padding:6px 1px;font-size:11px;color:var(--mute);border-radius:10px}
+nav.tabs button.on{color:var(--brand);font-weight:600}
+nav.tabs button span{display:block;font-size:20px;line-height:1;margin-bottom:3px}
+.sheet{position:fixed;inset:0;background:var(--paper);z-index:20;overflow:auto;padding:0 18px calc(40px + env(safe-area-inset-bottom,0px));display:none}
+.sheet.open{display:block}
+.sheet .bar{position:sticky;top:0;background:var(--paper);padding:calc(12px + env(safe-area-inset-top,0px)) 0 8px;display:flex;justify-content:space-between;align-items:center;z-index:2}
+.back{background:none;border:0;color:var(--brand2);font-weight:600;padding:6px 0;cursor:pointer}
+label.f{display:block;margin:12px 0 0;font-size:13px;color:var(--ink2);font-weight:500}
+input.t,select.t,textarea.t{width:100%;margin-top:4px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);outline:none}
+input.t:focus,select.t:focus,textarea.t:focus{border-color:var(--brand2)}
+textarea.t{min-height:90px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:14px;margin:8px 0}
+.kv b{color:var(--mute);font-weight:500}
+.ai{background:var(--card);border:1.5px solid var(--lav2);border-radius:14px;padding:14px 16px;margin:14px 0}
+.ai h3{margin:0 0 4px;font-size:15px;color:var(--brand)}
+.out{white-space:pre-wrap;background:var(--paper);border-radius:10px;padding:12px;font-size:14px;margin-top:10px;max-height:50vh;overflow:auto}
+.check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.check input{width:18px;height:18px;margin-top:2px}
+.check.done{color:var(--mute);text-decoration:line-through}
+.note{border-left:3px solid var(--lav2);padding:6px 10px;margin:8px 0;font-size:14px}
+.note .when{color:var(--mute);font-size:12px}
+.score{display:flex;gap:14px;align-items:center;margin-top:10px}
+.score .n{font-size:38px;font-weight:700;color:var(--brand);line-height:1}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:999px;font-size:13px;z-index:30;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+.fab{position:fixed;right:18px;bottom:calc(74px + env(safe-area-inset-bottom,0px));width:54px;height:54px;border-radius:50%;background:var(--brand);color:#fff;border:0;font-size:28px;line-height:1;box-shadow:0 6px 18px rgba(76,29,149,.35);z-index:7;cursor:pointer}
+.srch{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);margin:6px 0 2px;outline:none}
+.srch:focus{border-color:var(--brand2)}
+.lnk{display:inline-flex;align-items:center;gap:6px;border-radius:999px;background:var(--lav);color:var(--brand);padding:4px 6px 4px 12px;font-size:13px;margin:4px 6px 0 0;cursor:pointer}
+.lnk button{border:0;background:transparent;color:var(--brand);font-size:16px;line-height:1;padding:0 4px;cursor:pointer}
+.pl{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;background:var(--card)}
+.pl .g3{display:grid;grid-template-columns:70px 1fr 70px;gap:8px}
+.pl input{margin-top:0}
+.tot{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:14px;margin-top:10px}
+.tot b{text-align:right} .tot .big{font-size:18px;font-weight:700;color:var(--brand)}
+table.sc{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px} table.sc td,table.sc th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right} table.sc td:first-child,table.sc th:first-child{text-align:left}
+.notice{background:var(--amberbg);color:var(--amber);border-radius:10px;padding:10px 12px;font-size:13px;margin:8px 0}
+/* board */
+.seg{display:inline-flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;margin:6px 0 2px}
+.seg button{border:0;background:var(--card);color:var(--ink2);padding:7px 14px;font-size:13px;cursor:pointer}
+.seg button.on{background:var(--brand);color:#fff}
+.board{display:flex;gap:10px;overflow-x:auto;padding:8px 0 16px;margin:0 -18px;padding-left:18px;padding-right:18px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;align-items:flex-start}
+.kcol{flex:0 0 250px;background:var(--lav);border-radius:14px;padding:10px;min-height:120px;scroll-snap-align:start;transition:box-shadow .15s}
+.kcol.over{box-shadow:0 0 0 2px var(--brand2) inset}
+.kcol h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--brand);text-transform:capitalize;display:flex;justify-content:space-between}
+.kcol h3 span{color:var(--mute);font-weight:500}
+.kcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 10px 10px 8px;margin-bottom:8px;display:grid;grid-template-columns:22px 1fr;gap:6px;cursor:pointer;position:relative}
+.kcard.lift{opacity:.35}
+.kcard .grip{color:var(--mute);font-size:18px;line-height:1;touch-action:none;cursor:grab;user-select:none;padding-top:2px}
+.kcard .kt{font-weight:600;font-size:13.5px;line-height:1.3}
+.kcard .km{color:var(--mute);font-size:12px;margin-top:3px}
+.kcard .kd{font-size:12px;font-weight:600;color:var(--brand);margin-top:4px}
+.btn.nbtn{padding:4px 9px;font-size:12px;border-radius:7px;text-decoration:none}a.btn{text-decoration:none}
+.kcard .kd.hot{color:var(--red)}
+/* delete X, top right of each bid card */
+.card.opp{position:relative;padding-right:44px}
+.kcard{padding-right:34px}
+.card.hx{position:relative;padding-right:44px}
+.xdel{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;background:transparent;color:var(--mute);font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2}
+.xdel:hover,.xdel:focus-visible{background:var(--redbg);color:var(--red)}
+.kcard .xdel{top:6px;right:6px;width:24px;height:24px;font-size:17px}
+/* in-page confirm box: browser pop-ups are blocked inside Claude */
+.modal{position:fixed;inset:0;background:rgba(10,4,20,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+.modal .box{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:16px;padding:18px;width:100%;max-width:380px;box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.modal .box p{margin:0;font-weight:500;line-height:1.4}
+.modal .box .row{justify-content:flex-end;margin-top:16px}
+.undo{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--paper);border-radius:999px;padding:6px 6px 6px 16px;display:flex;gap:12px;align-items:center;font-size:13px;z-index:31;max-width:calc(100vw - 32px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.undo span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.undo button{border:0;background:transparent;color:inherit;font-weight:600;text-decoration:underline;padding:6px 10px;cursor:pointer;opacity:.85}
+.kghost{position:fixed;z-index:50;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.25);transform:rotate(2deg);opacity:.95}
+.kcol .kmore{width:100%;border:1.5px dashed var(--lav2);background:transparent;border-radius:10px;padding:8px;color:var(--brand);font-size:13px;cursor:pointer}
+/* relationships and quotes */
+.rel{display:inline-block;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;margin-top:6px;margin-right:4px}
+.rel.cold{background:var(--redbg);color:var(--red)} .rel.due{background:var(--amberbg);color:var(--amber)} .rel.warm{background:var(--greenbg);color:var(--green)} .rel.none{background:var(--lav);color:var(--mute)}
+.qrow{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;background:var(--card)}
+.qrow .qh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.qrow .qh b{font-size:14px}
+.steps{display:flex;gap:6px;margin:8px 0 4px;flex-wrap:wrap}
+.step{font-size:11.5px;border-radius:999px;padding:3px 9px;background:var(--lav);color:var(--brand)}
+.step.done{background:var(--greenbg);color:var(--green)} .step.late{background:var(--redbg);color:var(--red)}
+:focus-visible{outline:2px solid var(--brand2);outline-offset:2px}
+.season{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:2px 0 6px}
+.season>div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px;min-width:0}
+.season .lv{font-size:12px;color:var(--mute);font-weight:500}
+.season .md{font-weight:700;font-size:15px;color:var(--brand2)}
+.season .bid .md{color:var(--green)}
+.season .sb{font-size:12px;color:var(--mute);overflow-wrap:anywhere;line-height:1.3}
+details.yr summary{cursor:pointer;color:var(--brand2);font-size:13px;font-weight:600;margin:4px 0 6px}
+table.yr{width:100%;border-collapse:collapse;font-size:13px}
+table.yr td,table.yr th{padding:5px 4px;border-bottom:1px solid var(--line);text-align:left}
+table.yr th{color:var(--mute);font-weight:500}
+table.yr .b{color:var(--green);font-weight:600}
+table.yr tr.now td{background:var(--lav)}
+.lvlpick{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 4px}
+.lvlcard{display:flex;flex-direction:column;align-items:flex-start;text-align:left;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;min-width:0;cursor:pointer}
+.lvlcard .lv{font-size:13px;color:var(--mute);font-weight:500}
+.lvlcard .md{font-size:20px;font-weight:700;color:var(--brand2);line-height:1.25}
+.lvlcard.bid .md{color:var(--green)}
+.lvlcard .sb{font-size:12px;color:var(--mute);line-height:1.3;overflow-wrap:anywhere}
+.lvlcard .sb b{color:var(--ink2);font-weight:600}
+.lvlcard.on{border-color:var(--brand2);background:var(--lav);box-shadow:0 0 0 1px var(--brand2) inset}
+.portals{margin:12px 0 4px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:4px 14px}
+.portals summary{cursor:pointer;font-weight:600;color:var(--brand);padding:10px 0;list-style-position:inside}
+.portals summary .sub{font-weight:500;margin-left:6px}
+.prow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border-top:1px solid var(--line);padding:10px 0}
+.prow .ttl{font-size:14px}
+.prow .pa{display:flex;flex-direction:column;gap:5px;align-items:stretch}
+.prow .pa .btn{justify-content:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar" aria-label="Main navigation">
-      <div class="brand">
-        <img src="icons/icon-192.png" alt="" width="36" height="36" />
-        <div>
-          <div class="brand-name">KCapex</div>
-          <div class="brand-sub">Command Center</div>
-        </div>
-      </div>
-      <nav class="nav" id="nav"></nav>
-    </aside>
+<div class="app">
+<header class="top"><div class="wordmark">KCAPEX<small>Pipeline</small></div><div class="sync" id="sync">Connecting</div></header>
+<main id="main"></main>
+</div>
+<nav class="tabs" id="tabs"></nav>
+<button class="fab" id="fab" aria-label="Add" title="Add">+</button>
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
 
-    <main class="main">
-      <header class="topbar">
-        <div class="topbar-title">
-          <img class="topbar-logo" src="icons/icon-192.png" alt="" width="28" height="28" />
-          <h1 id="view-title">Dashboard</h1>
-        </div>
-        <div class="topbar-actions">
-          <span class="today" id="today"></span>
-          <button class="icon-btn" id="settings-btn" aria-label="Settings" title="Settings">
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
-          </button>
-        </div>
-      </header>
-      <section id="view" class="view" aria-live="polite"></section>
-    </main>
-  </div>
+<script>
+/* ---------- constants ---------- */
+const STATUSES=["found","reviewing","bid","no-bid","submitted","awarded","lost","cancelled"];
+const ACTIVE=["found","reviewing","bid","submitted"];
+const KCAPEX=`KCAPEX LLC, small business federal prime contractor, Merrillville IN. UEI PCATNSPCZFE9, CAGE 190W7. Self-certified small business only; no 8(a), SDVOSB, VOSB, WOSB, or HUBZone. Strategy: price-based, single-trade, easily subcontracted work (janitorial, facility services, building component replacement, HVAC, flooring, painting, mold remediation, moving, equipment maintenance). Prefers quick-turnaround postings and requirements contracting officers want off their plate. Performs through local teaming subcontractors; KCAPEX is prime and single point of accountability. Past performance: Air Force Beale AFB carpet and floor tile; USDA Forest Service janitorial; BLM rooftop HVAC replacement; USFWS water filtration; USFWS door replacement. House style for emails: short, factual, solicitation number in subject, ask for confirmation of receipt, signed Kobe Williams, CEO and Co-Owner, 219-333-6902, kcapexllc@gmail.com.`;
 
-  <nav class="tabbar" id="tabbar" aria-label="Main navigation"></nav>
-  <button class="fab" id="fab" aria-label="Add new" hidden>
-    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
-  </button>
+const COLL={opportunities:"Opportunities",contacts:"Contacts",subs:"Subcontractors",pastperf:"Past performance",tasks:"Tasks"};
+const FIELDS={
+ opportunities:[
+  ["title","Title","text"],["sol","Solicitation number","text"],["agency","Agency","text"],["office","Contracting office","text"],
+  ["noticeType","Notice type","select",["RFQ","RFP","Sources sought","Presolicitation","Combined synopsis","Solicitation","IFB","State or local","Other"]],["setAside","Set-aside","text"],
+  ["naics","NAICS","text"],["place","Place of performance","text"],["posted","Posted","date"],["due","Due date","date"],["dueTime","Due time and zone","text"],
+  ["method","Submission method","select",["Email","SAM.gov","PIEE","Portal","Mail"]],["status","Status","select",STATUSES],
+  ["estValue","Estimated value ($)","number"],["ourPrice","Our price ($)","number"],["contactsTxt","Government contacts","text"],["subsTxt","Subcontractors","text"],["link","Link","text"]],
+ contacts:[["name","Name","text"],["title","Title","text"],["role","Role","select",["Contracting Officer","Contract Specialist","COR","Small Business Specialist","Other"]],["agency","Agency","text"],["office","Office","text"],["email","Email","text"],["phone","Phone","text"],["cadence","Touch every (days)","select",["45","30","60","90"]],["lastTouch","Last touch","date"],["nextFollow","Next follow-up","date"]],
+ subs:[["company","Company","text"],["trade","Trade or NAICS","text"],["area","Service area","text"],["contact","Contact name","text"],["email","Email","text"],["phone","Phone","text"],["certs","Certifications and licenses","text"],["insurance","Insurance on file","text"],["rating","Rating","select",["Untested","Good","Great","Avoid"]],["source","Source","text"],["signedUp","Signed up","date"],["crew","Crew size","text"],["years","Years in business","text"],["sam","SAM registered","text"],["availability","Availability","text"],["pricing","Pricing","text"],["equipment","Equipment and notes","textarea"]],
+ pastperf:[["contract","Contract number","text"],["agency","Agency","text"],["value","Value ($)","number"],["period","Period","text"],["scope","Scope","textarea"],["poc","Government POC","text"],["status","Status","select",["Active","Completed"]]],
+ tasks:[["text","Task","text"],["due","Due","date"],["done","Done","select",["No","Yes"]]]
+};
+const TITLE={opportunities:d=>d.title||d.sol||"Untitled",contacts:d=>d.name||"Unnamed",subs:d=>d.company||"Unnamed",pastperf:d=>d.contract||"Untitled",tasks:d=>d.text||"Task"};
 
-  <dialog id="modal" class="modal">
-    <form id="modal-form" method="dialog" class="modal-inner"></form>
-  </dialog>
+/* ---------- state ---------- */
+let db=null, sample=null, userCap=null, canWrite=true;
+/* records written by other tools sometimes store a list field as plain text; reshape on load so one odd record can't blank the page (Nov 20, 2026) */
+const LIST_IDS=["contactIds","subIds","ppIds","matches"];
+function tidy(b){if(!b||typeof b!=="object")return b;
+  if(b.notes!=null&&!Array.isArray(b.notes))b={...b,notes:typeof b.notes==="string"&&b.notes.trim()?[{t:"",text:b.notes}]:[]};
+  if(b.requirements!=null&&!Array.isArray(b.requirements))b={...b,requirements:typeof b.requirements==="string"&&b.requirements.trim()?[{text:b.requirements,done:false}]:[]};
+  for(const f of LIST_IDS)if(b[f]!=null&&!Array.isArray(b[f]))b={...b,[f]:typeof b[f]==="string"&&b[f]?[b[f]]:[]};
+  if(Array.isArray(b.notes)&&b.notes.some(n=>typeof n!=="object"||!n))b={...b,notes:b.notes.map(n=>n&&typeof n==="object"?n:{t:"",text:String(n??"")})};
+  if(Array.isArray(b.requirements)&&b.requirements.some(r=>typeof r!=="object"||!r))b={...b,requirements:b.requirements.map(r=>r&&typeof r==="object"?r:{text:String(r??""),done:false})};
+  return b}
+const pendingDel=new Set(); /* deletes in flight: hidden from sync until the write lands */
+const data={opportunities:{},contacts:{},subs:{},pastperf:{},tasks:{},feeds:{},inbox:{},portals:{}};
+let mcp=null, feedMeta={}, feedErr="", pulling=false;
+let tab="today";
+const q={pipeline:"",contacts:"",subs:"",pastperf:""};
+const hit=(d,term)=>!term||JSON.stringify(d).toLowerCase().includes(term.toLowerCase());
+const listOf=coll=>Object.entries(data[coll]).map(([id,d])=>({id,...d}));
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36);
+let toastT=null;const toast=(m,ms=1800)=>{const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),ms)};
+const money=n=>n?"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0}):"";
+function daysLeft(iso){if(!iso)return null;const d=new Date(iso+"T23:59:59");const now=new Date();return Math.ceil((d-now)/86400000)}
+const isoDay=(d=new Date())=>{const x=new Date(d);return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0")};
+const addDays=(iso,n)=>{const d=new Date((iso||isoDay())+"T12:00:00");d.setDate(d.getDate()+n);return isoDay(d)};
+const daysSince=iso=>{if(!iso)return null;const d=new Date(iso.length>10?iso:iso+"T12:00:00");if(isNaN(d))return null;return Math.floor((Date.now()-d)/864e5)};
+const first=s=>String(s||"").trim().split(/\s+/)[0]||"";
+/* relationship state for a Government contact */
+function relState(c){
+  let last=c.lastTouch||"";
+  if(!last){const ns=(c.notes||[]).map(n=>new Date(n.t)).filter(d=>!isNaN(d)).sort((a,b)=>b-a);if(ns.length)last=isoDay(ns[0])}
+  const cad=Number(c.cadence)||45; const since=daysSince(last);
+  if(since===null)return{k:"none",label:"No touch logged",last:"",since:null,cad};
+  const dueNext=c.nextFollow&&c.nextFollow<=isoDay();
+  if(since>cad)return{k:"cold",label:"Cold, "+since+" days",last,since,cad};
+  if(dueNext)return{k:"due",label:"Follow-up due",last,since,cad};
+  return{k:"warm",label:"Touched "+since+"d ago",last,since,cad};
+}
+function daysCell(d){const n=daysLeft(d.due);if(n===null)return`<div class="days done">--<small>no date</small></div>`;if(!ACTIVE.includes(d.status))return`<div class="days done">${d.status==="awarded"?"✓":"·"}<small>${esc(d.status)}</small></div>`;if(n<0)return`<div class="days done">${n}<small>days past</small></div>`;return`<div class="days ${n<=3?"hot":""}">${n}<small>${n===1?"day left":"days left"}</small></div>`}
 
-  <div id="toast" class="toast" role="status" hidden></div>
+/* ---------- persistence ---------- */
+const local={};
+async function save(coll,id,body){
+  body.updatedAt=new Date().toISOString(); if(!body.createdAt)body.createdAt=body.updatedAt;
+  if(db&&canWrite){try{await db.doc(coll+"/"+id).set(body);if(body.deleted)delete data[coll][id];else data[coll][id]=body;return true}catch(e){if(e&&e.code==="invalid_argument"){canWrite=false;$("#sync").textContent="Read only";toast("You can view but not edit. Ask the owner for edit access.")}else toast("Save failed: "+(e.message||e.code));return false}}
+  data[coll][id]=body; render(); return true;
+}
+async function remove(coll,id){const b=data[coll][id];if(!b)return;b.deleted=true;await save(coll,id,{...b});}
+const use=n=>(window.claude&&window.claude.use)?window.claude.use(n):Promise.resolve(null);
+function boot(){
+  render();
+  use("user").then(u=>{userCap=u;if(u){const w=u.can("data.write");if(w===false){canWrite=false;$("#sync").textContent="Read only"}}});
+  use("db").then(d=>{db=d;if(!d){$("#sync").textContent="Not synced";$("#main").insertAdjacentHTML("afterbegin",'<div class="notice">Open this page inside Claude to save and sync. Edits here stay on this device only.</div>');return}
+    $("#sync").textContent="Synced";
+    for(const c of [...Object.keys(COLL),"feeds","inbox","portals"]){d.collection(c).onSnapshot(snap=>{const next={};snap.docs.forEach(s=>{const b=s.data();if(b&&!b.deleted&&!pendingDel.has(c+"/"+s.id))next[s.id]=tidy(b)});data[c]=next;render();},e=>{$("#sync").textContent="Sync issue"})}
+    d.doc("settings/feeds").onSnapshot(sn=>{feedMeta=sn.exists?sn.data():{};render();maybeAutoPull()});
+  });
+  use("sample").then(s=>{sample=s;render()});
+  use("mcp").then(m=>{mcp=m;render();maybeAutoPull()});
+}
 
-  <script src="app.js"></script>
+/* ---------- render ---------- */
+const TABS=[["today","Today","☀"],["feed","New","⌁"],["quick","Quick","⚡"],["pipeline","Pipeline","◫"],["past","Past","↺"],["contacts","People","☺"],["subs","Subs","⚒"],["pastperf","Library","▤"]];
+function render(){
+  $("#tabs").innerHTML=TABS.map(([k,l,i])=>`<button class="${tab===k?"on":""}" onclick="go('${k}')"><span>${i}</span>${l}</button>`).join("");
+  const ae=document.activeElement; const keep=ae&&ae.id==="q"?[ae.selectionStart,ae.selectionEnd]:null;
+  const m=$("#main"); const fab=$("#fab"); fab.style.display=(tab==="today"||tab==="feed"||tab==="past"||tab==="quick")?"none":"";
+  try{if(tab==="today")m.innerHTML=renderToday(); else if(tab==="feed")m.innerHTML=renderFeed(); else if(tab==="quick")m.innerHTML=renderQuick(); else if(tab==="pipeline")m.innerHTML=renderPipeline(); else if(tab==="past")m.innerHTML=renderPast(); else m.innerHTML=renderList(tab);}
+  catch(err){console.error(err);m.innerHTML=`<div class="notice">This tab hit a problem drawing one of your records (${esc(err&&err.message||err)}). Your data is safe. Try another tab, and tell Claude what you see.</div>`}
+  if(keep){const i=$("#q");if(i){i.focus();try{i.setSelectionRange(keep[0],keep[1])}catch(e){}}}
+  const s=$("#sheet"); if(s.classList.contains("open")&&s.dataset.coll&&s.dataset.id&&s.dataset.mode==="view")openDetail(s.dataset.coll,s.dataset.id,false);
+}
+function go(k){tab=k;render();window.scrollTo(0,0)}
+function sortedOpps(f){return Object.entries(data.opportunities).map(([id,d])=>({id,...d})).filter(f||(()=>true)).sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1)}
+const WORKING=["found","reviewing","bid"];
+function isPast(o){const st=o.status||"found";if(!WORKING.includes(st))return true;const n=daysLeft(o.due);return n!==null&&n<0}
+function pastGroup(o){const st=o.status||"found";if(st==="awarded")return"awarded";if(["lost","no-bid","cancelled"].includes(st))return"closed";return"waiting"}
+function sinceDue(o){const n=daysLeft(o.due);return n===null?"":n<0?`${-n} day${n===-1?"":"s"} since due`:n===0?"due today":`due in ${n} day${n===1?"":"s"}`}
+function pastCard(o){const g=pastGroup(o);const hint=g==="awarded"?"Performing. Track kickoff, submittals, invoicing.":g==="closed"?(o.status==="lost"?"Request a debrief and log who won.":"Closed out."):(o.status==="submitted"?"Follow up with the CO on award status.":"Due date passed. Mark it submitted, no-bid, or lost.");
+  return`<div class="card opp" onclick="openDetail('opportunities','${o.id}')">${xBtn(o)}${daysCell(o)}<div><div class="ttl">${esc(o.title||o.sol)}</div><div class="meta">${esc([o.sol,o.agency].filter(Boolean).join(" · "))}${o.due?" · "+esc(sinceDue(o)):""}</div><div class="meta" style="color:var(--ink2)">${esc(hint)}</div><span class="tag ${g==="awarded"?"green":g==="closed"?"red":"amber"}">${esc(o.status||"found")}</span>${o.ourPrice?`<span class="tag">${money(o.ourPrice)}</span>`:""}${noticeUrl(o)?`<div style="margin-top:8px">${noticeBtn(o)}</div>`:""}</div></div>`}
+let pastFilter="all";
+function renderPast(){
+  const all=Object.entries(data.opportunities).map(([id,d])=>({id,...d})).filter(isPast).filter(o=>hit(o,q.past||"")).sort((a,b)=>(a.due||"")<(b.due||"")?1:-1);
+  const grp=k=>all.filter(o=>pastGroup(o)===k);
+  const pastIds=new Set(all.map(o=>o.id));
+  const tasks=Object.entries(data.tasks).map(([id,d])=>({id,...d})).filter(t=>t.done!=="Yes"&&pastIds.has(t.linkId)).sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1);
+  const chips=[["all","All "+all.length],["waiting","Awaiting decision "+grp("waiting").length],["awarded","Awarded "+grp("awarded").length],["closed","Closed "+grp("closed").length]].map(([k,l])=>`<button class="chip ${pastFilter===k?"on":""}" onclick="pastFilter='${k}';render()">${esc(l)}</button>`).join("");
+  const sec=(k,h,empty)=>(pastFilter==="all"||pastFilter===k)?`<h2>${h}</h2>${grp(k).length?grp(k).map(pastCard).join(""):`<div class="empty">${empty}</div>`}`:"";
+  return`<h1>Past and follow-up</h1><p class="sub">Bids you submitted, worked on, or won. Anything submitted, awarded, closed, or past its due date moves here from Today.</p><input class="srch" id="q" type="search" placeholder="Search past bids" value="${esc(q.past||"")}" oninput="q.past=this.value;render()"><div class="chips">${chips}</div>
+  ${tasks.length&&pastFilter==="all"?`<h2>Follow-up tasks</h2>${tasks.map(t=>`<div class="card hx" onclick="openDetail('tasks','${t.id}')">${xRec('tasks',t.id,t.text)}<div class="ttl">${esc(t.text)}</div><div class="meta">${t.due?"due "+esc(t.due):"no date"}</div></div>`).join("")}`:""}
+  ${sec("waiting","Awaiting decision","Nothing waiting on the government.")}
+  ${sec("awarded","Awarded","No awards logged yet.")}
+  ${sec("closed","Closed","No closed bids.")}`;
+}
+/* ---------- Quick turn tab (added Nov 20, 2026): posted-to-due window worked out from the two dates on the record, not from a saved flag ---------- */
+const QT_MAX=8, QT_AMENDED_MAX=9; /* not amended: 1 to 8 days. Amended: under 10 days, posted to the current due date */
+const etDay=iso=>{if(!iso)return"";const s=String(iso);if(s.length<=10)return s.slice(0,10);const d=new Date(s);if(isNaN(d))return s.slice(0,10);try{return d.toLocaleDateString("en-CA",{timeZone:"America/New_York"})}catch(_){return s.slice(0,10)}};
+function qtWin(x){const p=etDay(x.posted),u=etDay(x.due);if(!p||!u)return null;const a=Date.parse(p+"T00:00:00Z"),b=Date.parse(u+"T00:00:00Z");return isNaN(a)||isNaN(b)?null:Math.round((b-a)/864e5)}
+/* true = amended, false = checked and not amended, null = no amendment data on the record */
+function qtAmended(x){
+  if(x.amended===true)return true;
+  if(x.lastNotice)return etDay(x.lastNotice)!==etDay(x.posted);
+  if(x.watch&&x.watch.noticesCount!=null)return Number(x.watch.noticesCount)>1;
+  if(/\bamend/i.test((x.rank&&x.rank.why)||""))return true;
+  if(x.amended===false)return false;
+  return null}
+function qtOpen(x){const u=etDay(x.due);return !!u&&u>=etDay(new Date().toISOString())}
+function qtOk(x){const w=qtWin(x);if(w===null||w<1||!qtOpen(x))return false;return w<=(qtAmended(x)===true?QT_AMENDED_MAX:QT_MAX)}
+function qtInbox(){return Object.entries(data.inbox).filter(([,x])=>x.state==="new"&&!blockedPlace(x.place)&&qtOk(x))}
+function qtPipe(){return Object.entries(data.opportunities).map(([id,d])=>({id,...d})).filter(o=>!isPast(o)&&qtOk(o))}
+function qtCount(){return qtInbox().length+qtPipe().length}
+function qtLine(x){const w=qtWin(x),am=qtAmended(x);const fed=x.src==="Federal"||levelOf(x)==="federal";
+  const tag=am===true?`<span class="tag amber">Amended${x.lastNotice?" "+esc(etDay(x.lastNotice)):""}</span>`:am===false?`<span class="tag green">Not amended</span>`:`<span class="tag">${fed?"Amendments not checked yet":"State/local: amendments not tracked"}</span>`;
+  return`<div style="margin-top:6px"><span class="tag green">${w}-day window</span>${tag}</div><div class="sub" style="margin-top:4px">Posted ${esc(etDay(x.posted))} · due ${esc(etDay(x.due))}</div>`}
+let qtFilter="all", qtBusy=false, qtMsg="";
+/* one Tango call: looks up the latest notice date for the federal bids in this tab and saves it on each record */
+async function qtCheck(){
+  if(!mcp||!db||qtBusy)return;
+  const todo=Object.entries(data.inbox).filter(([id,x])=>id.startsWith("fed-")&&x.state==="new"&&qtOpen(x)&&(()=>{const w=qtWin(x);return w!==null&&w>=1&&w<=QT_AMENDED_MAX})());
+  if(!todo.length){qtMsg="No federal quick-turn bids to check.";render();return}
+  qtBusy=true;qtMsg="";render();
+  try{
+    const ps=todo.map(e=>etDay(e[1].posted)).sort(),ds=todo.map(e=>etDay(e[1].due)).sort();
+    const r=await mcp.callTool("Tango","search_opportunities",{type:"opportunity",active:true,first_notice_date_after:addDays(ps[0],-1),response_deadline_after:addDays(isoDay(),-1),response_deadline_before:addDays(ds[ds.length-1],2),limit:1000,fields:"opportunity_id,first_notice_date,last_notice_date,response_deadline"},{cache:false});
+    let p=r.payload;if(typeof p==="string"){try{p=JSON.parse(p)}catch(_){}}
+    const rows=(p&&Array.isArray(p.results))?p.results:[];const by={};for(const x of rows)if(x&&x.opportunity_id)by["fed-"+x.opportunity_id]=x;
+    let n=0,am=0;
+    for(const [id,x] of todo){const t=by[id];if(!t||!t.last_notice_date)continue;
+      const b={...x,lastNotice:t.last_notice_date,due:t.response_deadline||x.due};b.amended=etDay(b.lastNotice)!==etDay(b.posted);
+      try{await db.doc("inbox/"+id).set(b);data.inbox[id]=b;n++;if(b.amended)am++}catch(_){}}
+    qtMsg=rows.length?`Checked ${n} of ${todo.length} federal bids: ${am} amended, ${n-am} not amended.${n<todo.length?" The rest were not in the search result; try again later.":""}`:"The search came back empty or in a format this page could not read. Nothing was changed.";
+  }catch(e){qtMsg=mcpMsg(e)}
+  qtBusy=false;render();
+}
+function renderQuick(){
+  const term=q.quick||"";
+  const keep=x=>{const am=qtAmended(x);return qtFilter==="all"||(qtFilter==="amended"?am===true:qtFilter==="clean"?am===false:am==null)};
+  const byDue=(a,b)=>(a.due||"9")<(b.due||"9")?-1:1;
+  const allIn=qtInbox().filter(([,x])=>hit(x,term)), allPipe=qtPipe().filter(o=>hit(o,term));
+  const inb=allIn.filter(([,x])=>keep(x)).sort((a,b)=>byDue(a[1],b[1])), pipe=allPipe.filter(keep).sort(byDue);
+  const every=[...allIn.map(e=>e[1]),...allPipe];
+  const nAm=every.filter(x=>qtAmended(x)===true).length, nClean=every.filter(x=>qtAmended(x)===false).length;
+  const chips=[["all","All "+every.length],["clean","Not amended "+nClean],["amended","Amended, under 10 days "+nAm],["unk","Not checked yet "+(every.length-nAm-nClean)]].map(([k,l])=>`<button class="chip ${qtFilter===k?"on":""}" onclick="qtFilter='${k}';render()">${esc(l)}</button>`).join("");
+  const inCard=([id,x])=>inboxCard(id,x).replace('<div class="row" style="margin-top:10px">',qtLine(x)+'<div class="row" style="margin-top:10px">');
+  const pCard=o=>oppCard(o).replace(/<\/div><\/div>$/,qtLine(o)+"</div></div>");
+  return`<h1>Quick turnaround</h1><p class="sub">Bids with 1 to 8 days from the posted date to the due date, counted from the two dates on each record. An amended bid shows here only when posted to its current due date is under 10 days, and it is marked Amended. Every bid also stays in its usual tab.</p>
+  <input class="srch" id="q" type="search" placeholder="Search quick-turn bids" value="${esc(term)}" oninput="q.quick=this.value;render()"><div class="chips">${chips}</div>
+  ${mcp?`<div class="row"><button class="btn ghost sm" ${qtBusy?"disabled":""} onclick="qtCheck()">${qtBusy?"Checking...":"Check for amendments"}</button><span class="sub">Uses one SAM data lookup</span></div>`:""}${qtMsg?`<div class="notice">${esc(qtMsg)}</div>`:""}
+  <h2>New, not yet in the pipeline <span class="sub">${inb.length}</span></h2>${inb.length?inb.map(inCard).join(""):'<div class="empty">No open quick-turn bids in New right now.</div>'}
+  <h2>Already in your pipeline <span class="sub">${pipe.length}</span></h2>${pipe.length?pipe.map(pCard).join(""):'<div class="empty">No open pipeline bids with a quick-turn window.</div>'}`;
+}
+/* delete a bid from its card: X in the top right (added Oct 30, 2026) */
+function xBtn(o){return`<button class="xdel" type="button" title="Delete" aria-label="Delete ${esc(o.title||o.sol||"bid")}" onclick="delOpp(event,'${o.id}')" onpointerdown="event.stopPropagation()">×</button>`}
+/* in-page replacement for confirm() and prompt(), which Claude blocks. ask() resolves true/false, or the typed text / null when input:true */
+function ask(msg,{ok="Delete",danger=true,input=false,placeholder=""}={}){return new Promise(res=>{
+  const m=document.createElement("div");m.className="modal";
+  m.innerHTML=`<div class="box" role="dialog" aria-modal="true"><p>${esc(msg)}</p>${input?`<input class="t" id="askIn" inputmode="decimal" placeholder="${esc(placeholder)}" style="margin-top:12px">`:""}<div class="row"><button class="btn line sm" type="button" data-a="no">Cancel</button><button class="btn ${danger?"danger":""} sm" type="button" data-a="ok">${esc(ok)}</button></div></div>`;
+  document.body.appendChild(m);const inp=m.querySelector("#askIn");
+  const done=yes=>{m.remove();res(input?(yes?inp.value:null):yes)};
+  m.addEventListener("click",e=>{e.stopPropagation();if(e.target===m)return done(false);const b=e.target.closest("[data-a]");if(b)done(b.dataset.a==="ok")});
+  m.addEventListener("keydown",e=>{if(e.key==="Escape")done(false);else if(e.key==="Enter"&&inp)done(true)});
+  setTimeout(()=>(inp||m.querySelector('[data-a="ok"]')).focus(),0)})}
+/* instant delete with Undo: the card leaves the screen at once, every write goes out together, Undo puts it all back */
+let undoT=null;
+function undoBar(msg,fn){let u=$("#undo");if(!u){u=document.createElement("div");u.id="undo";u.className="undo";document.body.appendChild(u)}
+  u.innerHTML=`<span>${esc(msg)}</span><button type="button">Undo</button>`;
+  u.querySelector("button").onclick=async()=>{clearTimeout(undoT);u.remove();await fn()};
+  clearTimeout(undoT);undoT=setTimeout(()=>{const x=$("#undo");if(x)x.remove()},5000)}
+async function trash(items,label){
+  const saved=items.map(([c,id])=>[c,id,data[c][id]?{...data[c][id]}:null]).filter(x=>x[2]);
+  if(!saved.length)return;
+  for(const [c,id] of saved){delete data[c][id];pendingDel.add(c+"/"+id)}
+  render();
+  undoBar("✓ "+label+" deleted",async()=>{for(const [c,id,b] of saved){pendingDel.delete(c+"/"+id);const r={...b};delete r.deleted;data[c][id]=r}render();
+    if(db)await Promise.all(saved.map(([c,id,b])=>{const r={...b};delete r.deleted;r.updatedAt=new Date().toISOString();return db.doc(c+"/"+id).set(r).catch(()=>{})}));toast("Restored")});
+  if(!db){toast("Deleted on this device only. Open the page inside Claude so it saves.",4000);return}
+  const now=new Date().toISOString();
+  /* always try the write, even if the page thinks it is read only: the server decides, and a refusal is shown, never silent */
+  const res=await Promise.all(saved.map(([c,id,b])=>db.doc(c+"/"+id).set({...b,deleted:true,updatedAt:now}).then(()=>null,e=>e||{message:"unknown error"})));
+  const bad=res.find(Boolean);
+  if(bad){for(const [c,id,b] of saved){pendingDel.delete(c+"/"+id);data[c][id]=b}const u=$("#undo");if(u)u.remove();render();
+    const ro=bad.code==="invalid_argument"||bad.code==="permission_denied"||/permission|read.?only|not allowed|forbidden/i.test(bad.message||"");
+    $("#sync").textContent="Delete failed";
+    toast(ro?"Delete blocked: this page is read only for you. Ask the owner for edit access.":"Delete did not save ("+(bad.message||bad.code||"unknown error")+"). Try again.",6000);return}
+  for(const [c,id] of saved)pendingDel.delete(c+"/"+id);
+  if(canWrite===false){canWrite=true;$("#sync").textContent="Synced"}
+}
+function xRec(coll,id,label){return`<button class="xdel" type="button" title="Delete" aria-label="Delete ${esc(label||"item")}" onclick="delRec(event,'${coll}','${id}')" onpointerdown="event.stopPropagation()">×</button>`}
+function delRec(e,coll,id){e.stopPropagation();e.preventDefault();const d=data[coll][id];if(!d)return;trash([[coll,id]],String(TITLE[coll](d)).slice(0,40))}
+const oppCardNoX=o=>oppCard(o).replace(/<button class="xdel"[^>]*>×<\/button>/,"");
+function oppItems(id){return[["opportunities",id],...Object.entries(data.tasks).filter(([,t])=>t.linkId===id).map(([tid])=>["tasks",tid])]}
+function delOpp(e,id){e.stopPropagation();e.preventDefault();const o=data.opportunities[id];if(!o)return;
+  const t=String(o.sol||o.title||"Bid");trash(oppItems(id),t.length>40?t.slice(0,38)+"…":t)}
+function delRecord(coll,id){const d=data[coll][id];if(!d)return closeSheet();closeSheet();
+  if(coll==="opportunities")trash(oppItems(id),String(d.sol||d.title||"Bid").slice(0,40));else trash([[coll,id]],String(TITLE[coll](d)).slice(0,40))}
+function noticeUrl(o){const u=String((o&&o.link)||"").trim();return /^https?:\/\//i.test(u)?u:""}
+function noticeBtn(o,small){const u=noticeUrl(o);return u?`<a class="btn ghost sm${small?" nbtn":""}" href="${esc(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" onpointerdown="event.stopPropagation()">Open notice ↗</a>`:""}
+function oppCard(o){const tags=[o.noticeType,o.setAside].filter(Boolean).map(t=>`<span class="tag">${esc(t)}</span>`).join("")+`<span class="tag ${o.status==="submitted"?"green":o.status==="no-bid"||o.status==="lost"?"red":""}">${esc(o.status||"found")}</span>`;
+  return`<div class="card opp" onclick="openDetail('opportunities','${o.id}')">${xBtn(o)}${daysCell(o)}<div><div class="ttl">${esc(o.title||o.sol)}</div><div class="meta">${esc([o.sol,o.agency].filter(Boolean).join(" · "))}${o.due?" · due "+esc(o.due):""}</div>${tags}${noticeUrl(o)?`<div style="margin-top:8px">${noticeBtn(o)}</div>`:""}</div></div>`}
+function renderToday(){
+  const act=sortedOpps(o=>!isPast(o));
+  const pastIds=new Set(Object.entries(data.opportunities).filter(([,o])=>isPast(o)).map(([id])=>id));
+  const nPast=Object.values(data.opportunities).filter(o=>isPast(o)&&pastGroup(o)==="waiting").length;
+  const soon=act.filter(o=>{const n=daysLeft(o.due);return n!==null&&n<=7});
+  const tasks=Object.entries(data.tasks).map(([id,d])=>({id,...d})).filter(t=>t.done!=="Yes"&&!pastIds.has(t.linkId)).sort((a,b)=>(a.due||"9999")<(b.due||"9999")?-1:1);
+  const stale=act.filter(o=>o.updatedAt&&(Date.now()-new Date(o.updatedAt))>7*86400000);
+  const dt=new Date().toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
+  const newList=Object.values(data.inbox).filter(x=>x.state==="new"&&!blockedPlace(x.place));const nNew=newList.length;const nBy=k=>newList.filter(x=>levelOf(x)===k).length;
+  return`<h1>${esc(dt)}</h1>${nNew?`<div class="card" onclick="go('feed')"><div class="ttl">${nNew} new opportunit${nNew===1?"y":"ies"} from your saved searches</div><div class="meta">Local ${nBy("local")} · State ${nBy("state")} · Federal ${nBy("federal")}</div></div>`:""}${qtCount()?`<div class="card" onclick="go('quick')"><div class="ttl">${qtCount()} quick-turn bid${qtCount()===1?"":"s"} open</div><div class="meta">Posted to due in 1 to 8 days · see the Quick tab</div></div>`:""}<p class="sub">${act.length} open bid${act.length===1?"":"s"} · ${tasks.length} open task${tasks.length===1?"":"s"}</p>${nPast?`<div class="card" onclick="go('past')"><div class="ttl">${nPast} bid${nPast===1?"":"s"} awaiting a decision</div><div class="meta">Follow up in Past</div></div>`:""}
+  ${seasonBlock()}
+  <h2>Due this week</h2>${soon.length?soon.map(oppCard).join(""):'<div class="empty">Nothing due in the next 7 days.</div>'}
+  <h2>Open tasks</h2>${tasks.length?tasks.map(t=>`<div class="card hx" onclick="openDetail('tasks','${t.id}')">${xRec('tasks',t.id,t.text)}<div class="ttl">${esc(t.text)}</div><div class="meta">${t.due?"due "+esc(t.due):"no date"}</div></div>`).join(""):'<div class="empty">No open tasks. Add one from any record.</div>'}
+  <div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="openForm('tasks')">Add task</button><button class="btn ghost sm" onclick="openForm('opportunities')">Add opportunity</button></div>
+  ${quotesOut()}
+  ${relToday()}
+  ${stale.length?`<h2>Not touched in a week</h2>${stale.map(oppCard).join("")}`:""}
+  ${sample?`<div class="ai"><h3>Morning brief</h3><p class="sub">Claude reads the pipeline and tells you what to do today.</p><button class="btn sm" onclick="brief()">Write brief</button><div class="out" id="briefOut" style="display:none"></div></div>`:""}`;
+}
+/* ---------- bid calendar: when to market, when to bid (strategy adopted Oct 25, 2026) ---------- */
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const SEASON=[
+ {lv:"Local",md:["Bid","Bid","Bid","Bid","Bid","Quiet","Snow bids","Market","Market","Market","Market","Bid"],
+  sb:["Chicago new year","Chicago and schools","School summer work","Schools, crunch","Schools, crunch","Slow month","Snow removal","Portals, snow bids","Portals, snow bids","Capability statements","Budgets set","Cook County new year"]},
+ {lv:"State",md:["Market","Bid","Bid","Bid","Bid","Bid","Snow bids","Snow bids","Snow bids","Market","Market","Market"],
+  sb:["Agency intros","IL and MT posting","Peak","Peak, crunch","Peak, crunch","Awards by Jun 30","Snow removal","Snow removal","Snow removal","BidBuy, IPG, eMACS","Agency intros","Agency intros"]},
+ {lv:"Federal",md:["Market","Market","Market","Bid","Bid","Bid","Bid","Bid","Bid","Market","Market","Market"],
+  sb:["Sources sought","Sources sought","Sources sought","Federal first","Federal first","Bid","Peak","Peak","Peak","Sources sought","Sources sought","Sources sought"]}];
+const isBid=m=>/^(Bid|Snow)/.test(m);
+function seasonNow(){const m=new Date().getMonth();return SEASON.map(s=>s.lv+" "+s.md[m]+(s.sb[m]?" ("+s.sb[m]+")":"")).join("; ")}
+function seasonBlock(){
+  const m=new Date().getMonth();
+  const strip=SEASON.map(s=>`<div class="${isBid(s.md[m])?"bid":""}"><div class="lv">${s.lv}</div><div class="md">${esc(s.md[m])}</div><div class="sb">${esc(s.sb[m])}</div></div>`).join("");
+  const order=[9,10,11,0,1,2,3,4,5,6,7,8];
+  const rows=order.map(i=>`<tr class="${i===m?"now":""}"><td>${MONTHS[i]}</td>${SEASON.map(s=>`<td class="${isBid(s.md[i])?"b":""}">${esc(s.md[i])}</td>`).join("")}</tr>`).join("");
+  return`<h2>Bid calendar, ${new Date().toLocaleDateString(undefined,{month:"long"})}</h2><div class="season">${strip}</div>
+  <details class="yr"><summary>Full year</summary><table class="yr"><tr><th>Month</th><th>Local</th><th>State</th><th>Federal</th></tr>${rows}</table>
+  <p class="sub" style="margin-top:8px">Local is Chicago, Cook County, CPS and school and park districts. State is Illinois and Montana. April and May are the overlap crunch: federal first, state and local bids only where KCAPEX can win.</p></details>`;
+}
+/* ---------- Today helpers: quotes outstanding, relationships to touch ---------- */
+function quotesOut(){
+  const rows=[];
+  for(const o of sortedOpps(o=>!isPast(o)))for(const [sid,qt] of Object.entries(o.quotes||{})){if(qt.status!=="requested")continue;const s=data.subs[sid];if(!s)continue;const w=daysSince(qt.sentOn);const late=qt.dueOn&&qt.dueOn<isoDay();
+    rows.push(`<div class="card" onclick="openDetail('opportunities','${o.id}')"><div class="ttl">${esc(s.company)}<span class="rel ${late?"cold":w>=2?"due":"warm"}" style="margin-left:8px">${late?"Past due":w+"d waiting"}</span></div><div class="meta">${esc(o.sol||o.title)} · asked ${esc(qt.sentOn)} · need by ${esc(qt.dueOn||"?")}${qt.chases?" · chased "+qt.chases+"x":""}</div></div>`)}
+  return rows.length?`<h2>Sub quotes outstanding</h2>${rows.join("")}`:"";
+}
+function relToday(){
+  const cs=listOf("contacts").map(c=>({...c,_r:relState(c)})).filter(c=>c._r.k==="cold"||c._r.k==="due").sort((a,b)=>(b._r.since??0)-(a._r.since??0)).slice(0,5);
+  if(!cs.length)return"";
+  return`<h2>Relationships to touch</h2>${cs.map(c=>`<div class="card" onclick="openDetail('contacts','${c.id}')"><div class="ttl">${esc(c.name)}</div><div class="meta">${esc([c.role,c.agency].filter(Boolean).join(" · "))}</div><span class="rel ${c._r.k}">${esc(c._r.label)}</span></div>`).join("")}<div class="row"><button class="btn ghost sm" onclick="relFilter='attention';go('contacts')">See all</button></div>`;
+}
+/* ---------- relationship touches ---------- */
+const TOUCH_KINDS=["Call","Email","Meeting","Capability statement sent","Sources sought response sent","Site visit","Other"];
+async function logTouch(id){
+  const kind=$("#touchKind").value, what=$("#touchIn").value.trim(); const c={...data.contacts[id]};
+  const cad=Number(c.cadence)||45; const today=isoDay();
+  c.notes=[...(c.notes||[]),{t:new Date().toLocaleString(),text:kind+(what?": "+what:"")}];
+  c.lastTouch=today; c.nextFollow=addDays(today,cad); if(!c.cadence)c.cadence=String(cad);
+  if(!await save("contacts",id,c))return;
+  await save("tasks","fu-"+id,{...(data.tasks["fu-"+id]||{}),text:"Follow up with "+(c.name||"contact")+(c.agency?", "+c.agency:""),due:c.nextFollow,done:"No",linkType:"contacts",linkId:id,auto:true});
+  toast("Logged. Next follow-up "+c.nextFollow); openDetail("contacts",id,false);
+}
+function relBlock(c,id){
+  const r=relState(c);
+  return`<div class="ai"><h3>Relationship</h3><div class="row"><span class="rel ${r.k}" style="margin-top:0">${esc(r.label)}</span>${c.nextFollow?`<span class="sub">Next follow-up ${esc(c.nextFollow)} · every ${r.cad} days</span>`:`<span class="sub">Cadence ${r.cad} days</span>`}</div>
+   <p class="sub" style="margin-top:8px">Log every call, email, or meeting. The next follow-up task is set automatically.</p>
+   <div class="row"><select class="t" id="touchKind" style="flex:1;margin:0">${TOUCH_KINDS.map(k=>`<option>${k}</option>`).join("")}</select></div>
+   <div class="row" style="margin-top:8px"><input class="t" id="touchIn" placeholder="What was said or sent" style="flex:1;margin:0"><button class="btn sm" onclick="logTouch('${id}')">Log touch</button></div>
+   ${sample?`<div class="row" style="margin-top:10px"><select class="t" id="cMailType" style="flex:1;margin:0"><option>Check-in, keep the relationship warm</option><option>Introduce KCAPEX and send capability statement</option><option>Ask about upcoming requirements and forecast</option><option>Thank you after award or site visit</option></select><button class="btn ghost sm" onclick="draftContactMail('${id}')">Draft</button><button class="btn line sm" onclick="copyOut('cMailOut')">Copy</button></div><div class="out" id="cMailOut" style="display:none"></div>`:""}</div>`;
+}
+async function draftContactMail(id){const c=data.contacts[id];const type=$("#cMailType").value;const out=$("#cMailOut");out.style.display="";out.textContent="Thinking...";
+  const ops=listOf("opportunities").filter(o=>(o.contactIds||[]).includes(id)).map(o=>`${o.sol||""} ${o.title||""} (${o.status})`).join("; ");
+  const hist=(c.notes||[]).slice(-4).map(n=>n.t+" "+n.text).join(" | ");
+  try{await sample(`${KCAPEX}\n\nWrite a "${type}" email to ${c.name}, ${c.title||c.role||""}, ${c.agency||""} ${c.office||""}. Output "Subject: ..." then the body. Short, factual, no marketing language, no parentheses, under 130 words. Reference our shared history where it helps. Do not invent contract numbers.\nShared history: ${ops||"none on file"}\nRecent touches: ${hist||"none"}`,{modelTier:"default",cache:false,onText:({text})=>{out.textContent=text}})}catch(e){aiFail(e,out)}}
+/* ---------- subcontractor quote sequence ---------- */
+const CHASE_DAYS=[2,4,6];
+function quoteTaskId(oid,sid,n){return"q"+n+"-"+oid+"-"+sid}
+async function quoteSent(oid,sid){
+  const d={...data.opportunities[oid]};const s=data.subs[sid];if(!s)return;const today=isoDay();
+  let need=addDays(today,3); if(d.due&&d.due<need)need=d.due>today?addDays(d.due,-1):today;
+  d.quotes={...(d.quotes||{}),[sid]:{sentOn:today,dueOn:need,status:"requested",chases:0}};
+  d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:"Pricing request sent to "+s.company+", need by "+need}];
+  if(!await save("opportunities",oid,d))return;
+  const label=d.sol||d.title||"bid"; let n=1;
+  for(const k of CHASE_DAYS){let due=addDays(today,k); if(d.due&&due>=d.due)due=addDays(d.due,-1); if(due<=today&&k>2)continue;
+    await save("tasks",quoteTaskId(oid,sid,n),{text:`Chase ${s.company} quote, follow-up ${n} of ${CHASE_DAYS.length}: ${label}`,due,done:"No",linkType:"opportunities",linkId:oid,auto:true,subId:sid,chase:n}); n++}
+  toast("Sequence started for "+s.company); openDetail("opportunities",oid,false);
+}
+async function quoteClose(oid,sid,status){
+  const d={...data.opportunities[oid]};const s=data.subs[sid];const qt={...(d.quotes||{})[sid]};if(!qt.sentOn)return;
+  let amt=null; if(status==="received"){const v=await ask("Quote amount from "+s.company+" in dollars, or leave blank",{ok:"Save",danger:false,input:true,placeholder:"$0.00"});if(v===null)return;amt=v.trim()?Number(v.replace(/[^0-9.]/g,"")):null}
+  qt.status=status; qt.closedOn=isoDay(); if(amt!==null)qt.amount=amt;
+  d.quotes={...(d.quotes||{}),[sid]:qt};
+  d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:s.company+" quote "+status+(amt?" at "+usd(amt):"")}];
+  if(status==="received"&&amt){const p=d.pricing||{mode:"markup",pct:15,lines:[]};const lines=(p.lines||[]).filter(l=>l.desc||l.cost!==""||l.sub);if(!lines.some(l=>(l.sub||"").toLowerCase()===s.company.toLowerCase()))lines.push({clin:String(lines.length+1).padStart(4,"0"),desc:"Quote "+qt.closedOn,sub:s.company,cost:amt,alt:""});d.pricing={...p,lines}}
+  if(!await save("opportunities",oid,d))return;
+  for(let n=1;n<=CHASE_DAYS.length;n++){const t=data.tasks[quoteTaskId(oid,sid,n)];if(t&&t.done!=="Yes")await save("tasks",quoteTaskId(oid,sid,n),{...t,done:"Yes"})}
+  toast(s.company+": "+status); openDetail("opportunities",oid,false);
+}
+async function quoteChased(oid,sid){const d={...data.opportunities[oid]};const qt={...(d.quotes||{})[sid]};qt.chases=(qt.chases||0)+1;qt.lastChase=isoDay();d.quotes={...(d.quotes||{}),[sid]:qt};d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:"Chased "+data.subs[sid].company+" for quote, follow-up "+qt.chases}];
+  if(!await save("opportunities",oid,d))return;const t=data.tasks[quoteTaskId(oid,sid,qt.chases)];if(t&&t.done!=="Yes")await save("tasks",quoteTaskId(oid,sid,qt.chases),{...t,done:"Yes"});openDetail("opportunities",oid,false)}
+function chaseText(o,s,qt){
+  const n=(qt.chases||0)+1, who=first(s.contact)||"Hello", sol=o.sol||o.title, need=qt.dueOn||"as soon as possible", gov=o.due?" The Government deadline is "+o.due+(o.dueTime?" "+o.dueTime:"")+".":"";
+  const sig="\n\nKobe Williams\nCEO and Co-Owner, KCAPEX LLC\n219-333-6902\nkcapexllc@gmail.com";
+  if(n<=1)return`Subject: Pricing follow-up, ${sol}, ${o.title||""}\n\n${who},\n\nFollowing up on the pricing request KCAPEX sent on ${qt.sentOn} for ${o.title||sol}${o.place?" at "+o.place:""}. Please confirm you received the scope and whether you can price it. We need your line item pricing by ${need}.${gov}\n\nIf anything in the scope is unclear, call me and we will walk through it.`+sig;
+  if(n===2)return`Subject: Second request, pricing needed by ${need}, ${sol}\n\n${who},\n\nWe have not received your pricing for ${o.title||sol}. KCAPEX needs it by ${need} to finish the Government submission.${gov}\n\nPlease reply with your price by line item, or let me know today if you are not able to bid this one so we can plan accordingly.`+sig;
+  return`Subject: Final request, ${sol}, pricing needed by ${need}\n\n${who},\n\nThis is the last call for pricing on ${o.title||sol}. If we do not have your line item pricing by ${need}, KCAPEX will price the work with another subcontractor and you will not be on this bid.${gov}\n\nA quick reply either way is appreciated.`+sig;
+}
+function mailChase(oid,sid){const o=data.opportunities[oid],s=data.subs[sid],qt=(o.quotes||{})[sid]||{};const t=chaseText(o,s,qt);const m=t.match(/^Subject: (.*)\n\n([\s\S]*)$/);const subj=m?m[1]:"",body=m?m[2]:t;
+  window.open("mailto:"+encodeURIComponent(s.email)+"?subject="+encodeURIComponent(subj)+"&body="+encodeURIComponent(body),"_blank")}
+function showChase(oid,sid){const o=data.opportunities[oid],s=data.subs[sid],qt=(o.quotes||{})[sid]||{};const out=$("#chase-"+sid);if(!out)return;out.style.display="";out.textContent=chaseText(o,s,qt)}
+function quoteBlock(d,id){
+  const subs=(d.subIds||[]).map(x=>[x,data.subs[x]]).filter(([,s])=>s);
+  if(!subs.length)return`<h2>Subcontractor quotes</h2><p class="sub">Link a subcontractor above, then start the pricing request sequence here.</p>`;
+  const today=isoDay();
+  const rows=subs.map(([sid,s])=>{const qt=(d.quotes||{})[sid];
+    if(!qt||!qt.sentOn)return`<div class="qrow"><div class="qh"><b>${esc(s.company)}</b><span class="sub">${esc(s.contact||"")}</span></div><div class="sub" style="margin:6px 0">No pricing request logged.</div><div class="row"><button class="btn sm" onclick="quoteSent('${id}','${sid}')">Request sent today</button></div></div>`;
+    const steps=CHASE_DAYS.map((k,i)=>{const t=data.tasks[quoteTaskId(id,sid,i+1)];if(!t)return"";const done=t.done==="Yes";const late=!done&&t.due<today;return`<span class="step ${done?"done":late?"late":""}">Follow-up ${i+1} · ${esc(t.due)}</span>`}).join("");
+    if(qt.status!=="requested")return`<div class="qrow"><div class="qh"><b>${esc(s.company)}</b><span class="rel ${qt.status==="received"?"warm":"cold"}" style="margin-top:0">${esc(qt.status)}${qt.amount?" "+usd(qt.amount):""}</span></div><div class="sub" style="margin-top:6px">Asked ${esc(qt.sentOn)}, closed ${esc(qt.closedOn||"")}${qt.chases?", chased "+qt.chases+"x":""}</div><div class="row" style="margin-top:8px"><button class="btn line sm" onclick="quoteSent('${id}','${sid}')">Start again</button></div></div>`;
+    const w=daysSince(qt.sentOn);const late=qt.dueOn<today;
+    return`<div class="qrow"><div class="qh"><b>${esc(s.company)}</b><span class="rel ${late?"cold":w>=2?"due":"warm"}" style="margin-top:0">${late?"Past due":w+"d waiting"}</span></div>
+     <div class="sub" style="margin-top:4px">Asked ${esc(qt.sentOn)} · need by ${esc(qt.dueOn)}${qt.chases?" · chased "+qt.chases+"x, last "+esc(qt.lastChase||""):""}</div><div class="steps">${steps}</div>
+     <div class="row"><button class="btn sm" onclick="showChase('${id}','${sid}')">Draft follow-up ${(qt.chases||0)+1}</button><button class="btn ghost sm" onclick="quoteChased('${id}','${sid}')">Mark chased</button><button class="btn ghost sm" onclick="quoteClose('${id}','${sid}','received')">Quote received</button><button class="btn line sm" onclick="quoteClose('${id}','${sid}','declined')">Declined</button></div>
+     <div class="out" id="chase-${sid}" style="display:none"></div><div class="row" style="margin-top:6px"><button class="btn line sm" onclick="showChase('${id}','${sid}');copyOut('chase-${sid}')">Copy draft</button>${s.email?`<button class="btn line sm" onclick="mailChase('${id}','${sid}')">Open in email</button>`:""}</div></div>`}).join("");
+  return`<h2>Subcontractor quotes</h2><p class="sub">Request sent, then follow-ups at 2, 4, and 6 days, capped before the Government deadline. Drafts are ready to copy.</p>${rows}`;
+}
+let pipeFilter="active";
+let pipeView="board"; try{pipeView=localStorage.getItem("kc.pipeView")||"board"}catch(_){}
+function setView(v){pipeView=v;try{localStorage.setItem("kc.pipeView",v)}catch(_){}render()}
+function renderPipeline(){
+  const seg=`<div class="seg"><button class="${pipeView==="board"?"on":""}" onclick="setView('board')">Board</button><button class="${pipeView==="list"?"on":""}" onclick="setView('list')">List</button></div>`;
+  const srch=`<input class="srch" id="q" type="search" placeholder="Search solicitations, agencies, notes" value="${esc(q.pipeline)}" oninput="q.pipeline=this.value;render()">`;
+  if(pipeView==="board"){
+    const all=sortedOpps().filter(o=>hit(o,q.pipeline));
+    const cols=STATUSES.map(s=>{const items=all.filter(o=>(o.status||"found")===s);
+      return`<div class="kcol" data-status="${s}"><h3>${esc(s)}<span>${items.length}</span></h3>${items.map(kCard).join("")}${s==="found"?`<button class="kmore" onclick="openForm('opportunities')">+ Add opportunity</button>`:""}</div>`}).join("");
+    const strip=STATUSES.map(s=>`<button class="chip" onclick="scrollCol('${s}')">${esc(s)} ${all.filter(o=>(o.status||"found")===s).length}</button>`).join("");
+    return`<h1>Pipeline</h1>${seg}${srch}<div class="chips">${strip}</div><p class="sub" style="margin:0">Drag the grip to move a bid between stages. Swipe sideways for more stages.</p><div class="board" id="board">${cols}</div>`;
+  }
+  const f=pipeFilter==="active"?o=>ACTIVE.includes(o.status||"found"):pipeFilter==="all"?null:o=>(o.status||"found")===pipeFilter;
+  const list=sortedOpps(f).filter(o=>hit(o,q.pipeline));
+  const chips=[["active","Active"],["all","All"],...STATUSES.map(s=>[s,s])].map(([k,l])=>`<button class="chip ${pipeFilter===k?"on":""}" onclick="pipeFilter='${k}';render()">${esc(l)}</button>`).join("");
+  return`<h1>Pipeline</h1>${seg}${srch}<div class="chips">${chips}</div>${list.length?list.map(oppCard).join(""):'<div class="empty">No opportunities here yet. Tap + to add one, or paste a solicitation and let Claude fill it in.</div>'}`;
+}
+function kCard(o){const n=daysLeft(o.due);const act=ACTIVE.includes(o.status||"found");
+  const dl=n===null?"":act?(n<0?`<div class="kd">${-n}d past due</div>`:`<div class="kd ${n<=3?"hot":""}">${n===0?"Due today":n+"d left"}</div>`):"";
+  const qs=Object.values(o.quotes||{});const open=qs.filter(x=>x.status==="requested").length;
+  return`<div class="kcard" data-id="${o.id}" onclick="openDetail('opportunities','${o.id}')">${xBtn(o)}<div class="grip" onpointerdown="dragStart(event,'${o.id}')" onclick="event.stopPropagation()" aria-label="Drag to move">⠿</div><div><div class="kt">${esc(o.title||o.sol)}</div><div class="km">${esc([o.sol,o.agency].filter(Boolean).join(" · "))}</div>${dl}${o.ourPrice?`<div class="km">Our price ${money(o.ourPrice)}</div>`:""}${open?`<span class="tag amber">${open} quote${open>1?"s":""} out</span>`:""}${noticeUrl(o)?`<div style="margin-top:6px">${noticeBtn(o,true)}</div>`:""}</div></div>`}
+function scrollCol(s){const c=document.querySelector(`.kcol[data-status="${s}"]`);if(c)c.scrollIntoView({behavior:"smooth",block:"nearest",inline:"start"})}
+/* drag between stages: pointer events, works with touch and mouse */
+let drag=null;
+function dragStart(e,id){e.preventDefault();const card=e.currentTarget.closest(".kcard");if(!card)return;const r=card.getBoundingClientRect();const g=card.cloneNode(true);g.className="kcard kghost";g.style.width=r.width+"px";document.body.appendChild(g);
+  drag={id,g,ox:e.clientX-r.left,oy:e.clientY-r.top,from:card.closest(".kcol").dataset.status};card.classList.add("lift");dragMove(e);
+  document.addEventListener("pointermove",dragMove,{passive:false});document.addEventListener("pointerup",dragEnd,{once:true});document.addEventListener("pointercancel",dragEnd,{once:true})}
+function dragMove(e){if(!drag)return;e.preventDefault();drag.g.style.left=(e.clientX-drag.ox)+"px";drag.g.style.top=(e.clientY-drag.oy)+"px";
+  const b=$("#board");if(b){if(e.clientX>window.innerWidth-40)b.scrollLeft+=10;else if(e.clientX<40)b.scrollLeft-=10}
+  const col=document.elementFromPoint(e.clientX,e.clientY)?.closest(".kcol");document.querySelectorAll(".kcol.over").forEach(c=>{if(c!==col)c.classList.remove("over")});if(col)col.classList.add("over")}
+async function dragEnd(e){if(!drag)return;const d=drag;drag=null;document.removeEventListener("pointermove",dragMove);d.g.remove();document.querySelectorAll(".kcard.lift").forEach(c=>c.classList.remove("lift"));document.querySelectorAll(".kcol.over").forEach(c=>c.classList.remove("over"));
+  const col=document.elementFromPoint(e.clientX,e.clientY)?.closest(".kcol");if(col&&col.dataset.status!==d.from)await moveStage(d.id,col.dataset.status)}
+async function moveStage(id,status){const d={...data.opportunities[id]};if(!d||d.status===status)return;const was=d.status||"found";d.status=status;d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:"Moved from "+was+" to "+status}];
+  if(await save("opportunities",id,d)){toast((d.sol||d.title||"Bid")+" moved to "+status);await autoTasks(id,d)}}
+let relFilter="all";
+function renderList(coll){
+  let items=listOf(coll).filter(d=>hit(d,q[coll]));
+  const line=d=>coll==="contacts"?[d.role,d.agency].filter(Boolean).join(" · "):coll==="subs"?[d.trade,d.area].filter(Boolean).join(" · "):coll==="pastperf"?[d.agency,money(d.value)].filter(Boolean).join(" · "):d.due||"";
+  let head="";
+  if(coll==="contacts"){
+    const rank={cold:0,due:1,none:2,warm:3};
+    items=items.map(d=>({...d,_r:relState(d)}));
+    if(relFilter!=="all")items=items.filter(d=>relFilter==="attention"?["cold","due","none"].includes(d._r.k):d._r.k===relFilter);
+    items.sort((a,b)=>(rank[a._r.k]-rank[b._r.k])||((a._r.since??-1)<(b._r.since??-1)?1:-1));
+    const n=k=>listOf("contacts").filter(c=>relState(c).k===k).length;
+    head=`<p class="sub">Book of business. A contact goes cold when it passes its touch cadence with no call, email, or meeting logged.</p><div class="chips">${[["all","All"],["attention","Needs attention"],["cold","Cold "+n("cold")],["due","Due "+n("due")],["warm","Warm "+n("warm")],["none","No touch yet"]].map(([k,l])=>`<button class="chip ${relFilter===k?"on":""}" onclick="relFilter='${k}';render()">${esc(l)}</button>`).join("")}</div>`;
+  }else items.sort((a,b)=>TITLE[coll](a).localeCompare(TITLE[coll](b)));
+  if(coll==="subs"){
+    /* website sub sign-ups (added Nov 7, 2026): filled automatically from the kcapexllc.com form emails */
+    const su=items.filter(d=>d.signup).sort((a,b)=>(b.signedUp||"")<(a.signedUp||"")?-1:1);
+    const nNew=su.filter(d=>!d.reviewed).length;
+    head=`<h2>Subcontractor sign-ups <span class="sub">${su.length} from kcapexllc.com${nNew?" · "+nNew+" new":""}</span></h2><p class="sub">Every sign-up from the website form lands here automatically each morning, with the open bids and connections it could fill.</p>${su.length?su.map(d=>`<div class="card hx" onclick="openDetail('subs','${d.id}')">${xRec('subs',d.id,d.company)}<div class="ttl">${esc(d.company||"Unnamed")}${!d.reviewed?' <span class="tag amber" style="margin-top:0">New</span>':""}</div><div class="meta">${esc([d.trade,d.area].filter(Boolean).join(" · "))}</div><div class="meta">${esc(["Signed up "+(d.signedUp||"?"),(d.matches||[]).length+" possible match"+((d.matches||[]).length===1?"":"es")].join(" · "))}</div></div>`).join(""):'<div class="empty">No website sign-ups yet.</div>'}<h2>All subcontractors</h2>`;
+  }
+  const card=d=>coll==="contacts"?`<div class="card hx" onclick="openDetail('contacts','${d.id}')">${xRec('contacts',d.id,d.name)}<div class="ttl">${esc(d.name||"Unnamed")}</div><div class="meta">${esc(line(d))}</div><span class="rel ${d._r.k}">${esc(d._r.label)}</span>${d.nextFollow?`<span class="rel none">Next ${esc(d.nextFollow)}</span>`:""}</div>`
+    :`<div class="card hx" onclick="openDetail('${coll}','${d.id}')">${xRec(coll,d.id,TITLE[coll](d))}<div class="ttl">${esc(TITLE[coll](d))}</div><div class="meta">${esc(line(d))}</div></div>`;
+  return`<h1>${COLL[coll]}</h1><input class="srch" id="q" type="search" placeholder="Search ${COLL[coll].toLowerCase()}" value="${esc(q[coll])}" oninput="q['${coll}']=this.value;render()">${head}${items.length?items.map(card).join(""):`<div class="empty">Nothing here yet. Tap + to add.</div>`}`;
+}
+
+/* ---------- forms ---------- */
+function fieldHtml([k,l,t,opts],v){
+  if(t==="select")return`<label class="f">${l}<select class="t" name="${k}">${opts.map(o=>`<option ${v===o?"selected":""}>${esc(o)}</option>`).join("")}</select></label>`;
+  if(t==="textarea")return`<label class="f">${l}<textarea class="t" name="${k}">${esc(v)}</textarea></label>`;
+  return`<label class="f">${l}<input class="t" type="${t}" name="${k}" value="${esc(v??"")}"></label>`;
+}
+function openForm(coll,id){
+  const d=id?data[coll][id]||{}:{};
+  const s=$("#sheet"); s.dataset.coll=coll; s.dataset.id=id||""; s.dataset.mode="edit";
+  s.innerHTML=`<div class="bar"><button class="back" onclick="closeSheet()">Cancel</button><button class="btn sm" onclick="submitForm()">Save</button></div>
+  <h1>${id?"Edit":"New"} ${COLL[coll].toLowerCase().replace(/s$/,"")}</h1><form id="frm" onsubmit="return false">${FIELDS[coll].map(f=>fieldHtml(f,d[f[0]])).join("")}</form>`;
+  s.classList.add("open"); s.scrollTop=0;
+}
+async function submitForm(){
+  const s=$("#sheet"),coll=s.dataset.coll,id=s.dataset.id||uid();
+  const prev=data[coll][id]||{}; const body={...prev};
+  new FormData($("#frm")).forEach((v,k)=>{body[k]=v});
+  for(const [k,,t] of FIELDS[coll]) if(t==="number") body[k]=body[k]===""?null:Number(body[k]);
+  if(coll==="opportunities"&&!body.status)body.status="found";
+  if(await save(coll,id,body)){toast("Saved");if(coll==="opportunities")autoTasks(id,body);openDetail(coll,id)}
+}
+function closeSheet(){const s=$("#sheet");s.classList.remove("open");s.innerHTML="";s.dataset.mode="";render()}
+$("#fab").onclick=()=>openForm(tab==="pipeline"?"opportunities":tab);
+
+/* ---------- detail ---------- */
+function openDetail(coll,id,scroll=true){
+  const d=data[coll][id]; if(!d)return closeSheet();
+  const s=$("#sheet"); s.dataset.coll=coll;s.dataset.id=id;s.dataset.mode="view";
+  const kv=FIELDS[coll].filter(([k])=>d[k]!==undefined&&d[k]!==""&&d[k]!==null&&!["title","name","company","contract","text"].includes(k)).map(([k,l,t])=>`<b>${l}</b><span>${k==="link"&&noticeUrl(d)?`<a href="${esc(noticeUrl(d))}" target="_blank" rel="noopener" style="color:var(--brand);word-break:break-all">${esc(d[k])}</a>`:t==="number"?money(d[k]):esc(d[k])}</span>`).join("");
+  const notes=(d.notes||[]).slice().reverse().map(n=>`<div class="note"><div class="when">${esc(n.t)}</div>${esc(n.text)}</div>`).join("");
+  let extra="";
+  if(coll==="opportunities")extra=oppExtras(d,id);
+  else if(coll==="contacts"||coll==="subs"||coll==="pastperf"){const f={contacts:"contactIds",subs:"subIds",pastperf:"ppIds"}[coll];const ops=listOf("opportunities").filter(o=>(o[f]||[]).includes(id));extra=(coll==="contacts"?relBlock(d,id):"")+(coll==="subs"?signupBlock(d,id):"")+`<h2>${coll==="pastperf"?"Cited in":"Linked opportunities"}</h2>${ops.length?ops.map(oppCardNoX).join(""):'<p class="sub">Not linked to any opportunity yet. Link it from an opportunity page.</p>'}`}
+  s.innerHTML=`<div class="bar"><button class="back" onclick="closeSheet()">‹ Back</button><div class="row"><button class="btn line sm" onclick="openForm('${coll}','${id}')">Edit</button><button class="btn danger sm" onclick="delRecord('${coll}','${id}')">Remove</button></div></div>
+  ${coll==="opportunities"?`<div class="row" style="margin-top:6px">${daysCell(d)}</div>`:""}
+  <h1>${esc(TITLE[coll](d))}</h1>${coll==="opportunities"&&noticeUrl(d)?`<div class="row" style="margin:-4px 0 12px">${noticeBtn(d)}</div>`:""}<div class="kv">${kv}</div>
+  ${coll==="tasks"?`<button class="btn sm" onclick="toggleTask('${id}')">${d.done==="Yes"?"Mark open":"Mark done"}</button>`:""}
+  ${extra}
+  <h2>Notes and interactions</h2>
+  <div class="row"><input class="t" id="noteIn" placeholder="Call, email, site visit, decision..." style="flex:1;margin:0"><button class="btn sm" onclick="addNote('${coll}','${id}')">Add</button></div>
+  ${notes||'<p class="sub" style="margin-top:8px">No notes yet.</p>'}
+  <h2>Tasks</h2><div class="row"><input class="t" id="taskIn" placeholder="Follow up with..." style="flex:1;margin:0"><input class="t" id="taskDue" type="date" style="width:150px;margin:0"><button class="btn sm" onclick="addTask('${coll}','${id}')">Add</button></div>
+  ${Object.entries(data.tasks).filter(([,t])=>t.linkId===id&&t.done!=="Yes").map(([tid,t])=>`<div class="check"><input type="checkbox" onchange="toggleTask('${tid}')"><div>${esc(t.text)}${t.due?` <span class="sub">due ${esc(t.due)}</span>`:""}</div></div>`).join("")}`;
+  s.classList.add("open"); if(scroll)s.scrollTop=0;
+}
+/* possible opportunities and connections for a website sign-up */
+function signupBlock(d,id){
+  if(!d.signup&&!(d.matches||[]).length)return"";
+  const kc=k=>/open|submitted/i.test(k||"")?"green":/recompete/i.test(k||"")?"amber":"";
+  const rows=(d.matches||[]).map(m=>{const o=m.oppId&&data.opportunities[m.oppId];const su=m.subId&&data.subs[m.subId];
+    const url=/^https?:\/\//i.test(m.link||"")?m.link:(o&&noticeUrl(o))||"";
+    const lbl=m.linkLabel||(/sam\.gov\/search/i.test(url)?"Search SAM.gov":/caleprocure/i.test(url)?"Search Cal eProcure":"Open notice");
+    const btns=(url?`<a class="btn ghost sm nbtn" href="${esc(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(lbl)} ↗</a>`:"")+(o?`<button class="btn line sm nbtn" onclick="event.stopPropagation();openDetail('opportunities','${esc(m.oppId)}')">Open in pipeline</button>`:"")+(su?`<button class="btn line sm nbtn" onclick="event.stopPropagation();openDetail('subs','${esc(m.subId)}')">Open sub</button>`:"");
+    return`<div class="qrow" ${o?`style="cursor:pointer" onclick="openDetail('opportunities','${esc(m.oppId)}')"`:""}><div class="qh"><b>${esc(m.title||"")}</b><span class="tag ${kc(m.kind)}" style="margin-top:0">${esc(m.kind||"")}</span></div>${m.sol||m.due?`<div class="sub" style="margin-top:4px">${esc([m.sol,m.due?"due "+m.due:""].filter(Boolean).join(" · "))}</div>`:""}<div style="font-size:14px;margin-top:6px">${esc(m.why||"")}</div>${btns?`<div class="row" style="margin-top:8px">${btns}</div>`:""}</div>`}).join("");
+  return`<div class="ai"><h3>Possible opportunities and connections</h3><p class="sub">${d.matchedOn?"Matched "+esc(d.matchedOn)+". ":""}Bids, recompetes and relationships this sub could help KCAPEX fill.</p>${rows||'<p class="sub">No matches found yet.</p>'}
+  <div class="row" style="margin-top:10px">${d.signup&&!d.reviewed?`<button class="btn sm" onclick="markReviewed('${id}')">Mark reviewed</button>`:""}${/^https?:\/\//i.test(d.gmailThread||"")?`<a class="btn line sm" href="${esc(d.gmailThread)}" target="_blank" rel="noopener">Open sign-up email ↗</a>`:""}</div></div>`;
+}
+async function markReviewed(id){const d={...data.subs[id],reviewed:true};if(await save("subs",id,d)){toast("Marked reviewed");openDetail("subs",id,false)}}
+function linkBlock(d,id){
+  const L=(field,coll,label)=>{const ids=d[field]||[];const chips=ids.filter(x=>data[coll][x]).map(x=>`<span class="lnk" onclick="openDetail('${coll}','${x}')">${esc(TITLE[coll](data[coll][x]))}<button aria-label="Unlink" onclick="event.stopPropagation();unlink('${id}','${field}','${x}')">×</button></span>`).join("");
+    const opts=listOf(coll).filter(o=>!ids.includes(o.id)).sort((a,b)=>TITLE[coll](a).localeCompare(TITLE[coll](b))).map(o=>`<option value="${o.id}">${esc(TITLE[coll](o))}</option>`).join("");
+    return`<div style="margin-top:10px"><div class="sub">${label}</div>${chips||'<span class="sub">None linked</span>'}${opts?`<select class="t" onchange="if(this.value)linkTo('${id}','${field}',this.value)"><option value="">Link ${label.toLowerCase()}...</option>${opts}</select>`:""}</div>`};
+  return`<h2>People and past performance</h2>${L("contactIds","contacts","Government contacts")}${L("subIds","subs","Subcontractors")}${L("ppIds","pastperf","Past performance cited")}`;
+}
+async function linkTo(id,field,x){const d={...data.opportunities[id]};d[field]=[...new Set([...(d[field]||[]),x])];await save("opportunities",id,d);openDetail("opportunities",id,false)}
+async function unlink(id,field,x){const d={...data.opportunities[id]};d[field]=(d[field]||[]).filter(y=>y!==x);await save("opportunities",id,d);openDetail("opportunities",id,false)}
+/* follow-up sequences keyed by status. Task ids are stable so a sequence never duplicates. */
+async function autoTasks(id,d){
+  const label=d.sol||d.title||"opportunity"; const today=isoDay();
+  const once=async(key,text,days)=>{const k=key+"-"+id;if(!data.tasks[k])await save("tasks",k,{text,due:addDays(today,days),done:"No",linkType:"opportunities",linkId:id,auto:true})};
+  const closeAuto=async()=>{for(const [k,t] of Object.entries(data.tasks))if(t.linkId===id&&t.auto&&t.done!=="Yes"&&!k.startsWith("fu-"))await save("tasks",k,{...t,done:"Yes"})};
+  const ss=/sources sought|presolicitation/i.test(d.noticeType||"");
+  if(d.due){const tid="due-"+id; const ex=data.tasks[tid];
+    if(["found","reviewing","bid"].includes(d.status)&&(!ex||ex.due!==d.due))await save("tasks",tid,{...(ex||{}),text:(ss?"Respond to ":"Submit ")+label,due:d.due,done:ex?ex.done:"No",linkType:"opportunities",linkId:id,auto:true});
+    if(d.status==="submitted"&&ex&&ex.done!=="Yes")await save("tasks",tid,{...ex,done:"Yes"});}
+  if(d.status==="submitted"){
+    if(ss){await once("ssfu","Follow up with the CO on "+label+": is a solicitation planned, and what set-aside",14);await once("ssfu2","Second sources sought follow-up: "+label,45)}
+    else{await once("rcpt","Confirm the Government received our quote: "+label,1);await once("award","Check award status: "+label,21);await once("award2","Second award status check: "+label,45)}
+  }
+  if(d.status==="awarded"){await closeAuto();await once("pp","Add "+label+" to the Library as past performance and log the COR as a contact",7);await once("kick","Kickoff with the sub: schedule, base access, baseline photos, QCP: "+label,2)}
+  if(d.status==="lost"){await closeAuto();await once("deb","Ask the CO for a brief explanation and the awarded price: "+label,2)}
+  if(d.status==="no-bid"||d.status==="cancelled")await closeAuto();
+}
+/* ---- pricing helper ---- */
+let pDraft=null;
+function pricingInit(d){const p=d.pricing||{};return{mode:p.mode||"markup",pct:p.pct??15,lines:(p.lines&&p.lines.length?p.lines:[{clin:"0001",desc:"",sub:"",cost:"",alt:""}]).map(x=>({...x}))}}
+function priceOf(cost,p){const c=Number(cost)||0;const m=(Number(p.pct)||0)/100;return p.mode==="margin"?(m>=1?c:c/(1-m)):c*(1+m)}
+const r2=n=>Math.round(n*100)/100; const usd=n=>"$"+(Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function scen(p){const base=p.lines.filter(l=>!l.alt);const groups={};p.lines.filter(l=>l.alt).forEach(l=>{(groups[l.alt.trim().toUpperCase()]=groups[l.alt.trim().toUpperCase()]||[]).push(l)});
+  let combos=[{name:"",lines:[...base]}];for(const [g,ls] of Object.entries(groups)){const nx=[];for(const c of combos)for(const l of ls)nx.push({name:(c.name?c.name+" + ":"")+"CLIN "+(l.clin||"?"),lines:[...c.lines,l]});combos=nx.slice(0,12)}
+  return Object.keys(groups).length?combos:[]}
+function pricingHtml(id){const p=pDraft;
+  const rows=p.lines.map((l,i)=>`<div class="pl"><div class="g3"><input class="t" placeholder="CLIN" value="${esc(l.clin)}" oninput="pSet(${i},'clin',this.value)"><input class="t" placeholder="Description" value="${esc(l.desc)}" oninput="pSet(${i},'desc',this.value)"><input class="t" placeholder="Alt" title="Alternate group letter; leave blank unless only one option in the group will be exercised" value="${esc(l.alt)}" oninput="pSet(${i},'alt',this.value)" onchange="rePrice('${id}')"></div>
+   <div class="g3" style="grid-template-columns:1fr 1fr auto;margin-top:6px"><input class="t" placeholder="Paid to (sub)" value="${esc(l.sub)}" oninput="pSet(${i},'sub',this.value)"><input class="t" inputmode="decimal" placeholder="Sub cost $" value="${esc(l.cost)}" oninput="pSet(${i},'cost',this.value)" onchange="rePrice('${id}')"><button class="btn danger sm" onclick="pDel(${i})" aria-label="Remove line">×</button></div>
+   <div class="sub" style="margin-top:6px">Price ${usd(r2(priceOf(l.cost,p)))} · KCAPEX keeps ${usd(r2(priceOf(l.cost,p)-(Number(l.cost)||0)))}</div></div>`).join("");
+  const tc=p.lines.reduce((a,l)=>a+(Number(l.cost)||0),0), tp=p.lines.reduce((a,l)=>a+r2(priceOf(l.cost,p)),0);
+  const bySub={};p.lines.forEach(l=>{const k=l.sub||"Unassigned";bySub[k]=(bySub[k]||0)+(Number(l.cost)||0)});
+  const sc=scen(p);
+  return`<div class="row" style="margin-top:6px"><select class="t" style="flex:1" onchange="pDraft.mode=this.value;rePrice('${id}')"><option value="markup" ${p.mode==="markup"?"selected":""}>Markup on sub cost</option><option value="margin" ${p.mode==="margin"?"selected":""}>Margin as % of price</option></select><input class="t" style="width:90px" inputmode="decimal" value="${esc(p.pct)}" onchange="pDraft.pct=this.value;rePrice('${id}')"><span>%</span></div>
+  ${rows}<button class="btn line sm" onclick="pAdd('${id}')">Add CLIN</button>
+  <div class="tot"><span>Paid to subs</span><b>${usd(tc)}</b><span>KCAPEX keeps</span><b>${usd(tp-tc)} ${tp?"("+((tp-tc)/tp*100).toFixed(1)+"% of price)":""}</b><span class="big">Total price, all CLINs</span><b class="big">${usd(tp)}</b></div>
+  ${Object.keys(bySub).length>1?`<table class="sc"><tr><th>Payee</th><th>Amount</th></tr>${Object.entries(bySub).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${usd(v)}</td></tr>`).join("")}</table>`:""}
+  ${sc.length?`<h2>If only one alternate is exercised</h2><table class="sc"><tr><th>Scenario</th><th>Price</th><th>Subs</th><th>Keep</th></tr>${sc.map(c=>{const cc=c.lines.reduce((a,l)=>a+(Number(l.cost)||0),0),pp=c.lines.reduce((a,l)=>a+r2(priceOf(l.cost,p)),0);return`<tr><td>${esc(c.name)}</td><td>${usd(pp)}</td><td>${usd(cc)}</td><td>${usd(pp-cc)}</td></tr>`}).join("")}</table>`:""}
+  <div class="row" style="margin-top:10px"><button class="btn sm" onclick="savePricing('${id}',false)">Save pricing</button><button class="btn ghost sm" onclick="savePricing('${id}',true)">Save and set our price</button>${sample?`<button class="btn line sm" onclick="checkPricing('${id}')">Check with Claude</button>`:""}</div><div class="out" id="priceOut" style="display:none"></div>`}
+function pSet(i,k,v){pDraft.lines[i][k]=v}
+function pAdd(id){const n=pDraft.lines.length+1;pDraft.lines.push({clin:String(n).padStart(4,"0"),desc:"",sub:pDraft.lines[pDraft.lines.length-1]?.sub||"",cost:"",alt:""});rePrice(id)}
+function pDel(i){pDraft.lines.splice(i,1);rePrice($("#sheet").dataset.id)}
+function rePrice(id){const box=$("#priceBox");if(box)box.innerHTML=pricingHtml(id)}
+async function savePricing(id,setPrice){const d={...data.opportunities[id]};d.pricing={mode:pDraft.mode,pct:Number(pDraft.pct)||0,lines:pDraft.lines.map(l=>({...l,cost:l.cost===""?"":Number(l.cost)}))};if(setPrice)d.ourPrice=r2(pDraft.lines.reduce((a,l)=>a+r2(priceOf(l.cost,pDraft)),0));if(await save("opportunities",id,d)){toast(setPrice?"Pricing saved and price set":"Pricing saved")}}
+async function checkPricing(id){const out=$("#priceOut");out.style.display="";out.textContent="Thinking...";const d=data.opportunities[id];
+  const lines=pDraft.lines.map(l=>({clin:l.clin,desc:l.desc,paidTo:l.sub,subCost:Number(l.cost)||0,price:r2(priceOf(l.cost,pDraft)),altGroup:l.alt||null}));
+  try{await sample(`${KCAPEX}\n\nReview this bid pricing for ${d.sol||""} ${d.title||""}. Award basis and notes: ${d.setAside||""}; ${(d.notes||[]).slice(-3).map(n=>n.text).join(" | ")}.\nPricing mode: ${pDraft.mode==="margin"?"margin as % of price":"markup on sub cost"} at ${pDraft.pct}%.\nLines: ${JSON.stringify(lines)}\n\nIn under 150 words: flag thin or negative margin, unbalanced CLINs, scope a sub may not have priced, alternate-option exposure, and whether the price looks competitive for a price-based award. End with one recommended change.`,{modelTier:"default",cache:false,onText:({text})=>{out.textContent=text}})}catch(e){aiFail(e,out)}}
+async function debrief(id){const out=$("#debOut");const notes=$("#debIn").value.trim();if(!notes){toast("Paste the debrief or what you know first");return}out.style.display="";out.textContent="Thinking...";const d=data.opportunities[id];
+  try{const {text}=await sample(`${KCAPEX}\n\nOutcome of ${d.sol||""} ${d.title||""}: ${d.status}. Our price: ${d.ourPrice||"unknown"}.\nDebrief or known facts:\n${notes}\n\nWrite a short debrief for the owners: what happened, the most likely reason we won or lost, and three specific changes for the next similar bid. Under 170 words, plain prose and a short list.`,{modelTier:"default",cache:false,onText:({text})=>{out.textContent=text}});
+    const b={...data.opportunities[id]};b.notes=[...(b.notes||[]),{t:new Date().toLocaleString(),text:"Debrief: "+text}];await save("opportunities",id,b);toast("Debrief saved to notes")}catch(e){aiFail(e,out)}}
+async function pdfToText(file){
+  if(!window.pdfjsLib){await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";s.onload=ok;s.onerror=no;document.head.appendChild(s)});window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"}
+  const pdf=await window.pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let out="";
+  for(let i=1;i<=Math.min(pdf.numPages,60);i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();out+=c.items.map(x=>x.str).join(" ")+"\n\n"}
+  return out}
+async function loadPdfs(input){const ta=$("#solText");const files=[...input.files];if(!files.length)return;toast("Reading PDF...");
+  try{let all=ta.value?ta.value+"\n\n":"";for(const f of files){all+=`=== ${f.name} ===\n`+await pdfToText(f)+"\n"}ta.value=all.trim();toast(files.length+" PDF"+(files.length>1?"s":"")+" loaded")}
+  catch(e){toast("Could not read that PDF. Paste the text instead.")}
+  input.value=""}
+function oppExtras(d,id){
+  const reqs=(d.requirements||[]).map((r,i)=>`<label class="check ${r.done?"done":""}"><input type="checkbox" ${r.done?"checked":""} onchange="toggleReq('${id}',${i})"><div>${esc(r.text)}</div></label>`).join("");
+  const sc=d.score?`<div class="score"><div class="n">${esc(d.score.score)}</div><div><b>${esc(d.score.recommendation)}</b><div class="sub">${esc(d.score.summary)}</div></div></div><ul style="padding-left:18px;margin:8px 0;font-size:14px">${(d.score.reasons||[]).map(r=>`<li>${esc(r)}</li>`).join("")}</ul>${d.score.risks&&d.score.risks.length?`<p class="sub"><b>Risks:</b> ${esc(d.score.risks.join("; "))}</p>`:""}`:"";
+  pDraft=pricingInit(d);
+  const pricing=`<h2>Pricing</h2><div id="priceBox">${pricingHtml(id)}</div>`;
+  const deb=(["awarded","lost","no-bid"].includes(d.status)&&sample)?`<div class="ai"><h3>Debrief</h3><p class="sub">Paste the Government's debrief or award notice, or what you know. Claude writes the lessons and saves them to notes.</p><textarea class="t" id="debIn"></textarea><div class="row" style="margin-top:8px"><button class="btn sm" onclick="debrief('${id}')">Write debrief</button></div><div class="out" id="debOut" style="display:none"></div></div>`:"";
+  if(!sample)return linkBlock(d,id)+quoteBlock(d,id)+pricing+`<h2>Compliance checklist</h2>${reqs||'<p class="sub">No requirements captured yet.</p>'}${sc?`<h2>Bid or no-bid</h2>${sc}`:""}`;
+  return`
+  ${deb}
+  <div class="ai"><h3>Read a solicitation</h3><p class="sub">Upload the solicitation PDFs or paste the text. Claude fills in the record and builds the checklist.</p>
+   <label class="btn ghost sm" style="margin-bottom:8px">Upload PDFs<input type="file" accept="application/pdf" multiple style="display:none" onchange="loadPdfs(this)"></label>
+   <textarea class="t" id="solText" placeholder="Or paste solicitation text here"></textarea>
+   <div class="row" style="margin-top:8px"><button class="btn sm" id="readBtn" onclick="readSol('${id}')">Read and fill in</button></div><div class="out" id="readOut" style="display:none"></div></div>
+  <h2>Compliance checklist</h2>${reqs||'<p class="sub">No requirements captured yet. Read the solicitation above to build one.</p>'}
+  ${linkBlock(d,id)}${quoteBlock(d,id)}${pricing}
+  <div class="ai"><h3>Bid or no-bid</h3><p class="sub">Scores this opportunity against how KCAPEX actually wins.</p><button class="btn sm" onclick="scoreOpp('${id}')">Score it</button>${sc}</div>
+  <div class="ai"><h3>Draft an email</h3>
+   <select class="t" id="mailType"><option>Question to the contracting officer</option><option>Submission email</option><option>Confirm receipt follow-up</option><option>Subcontractor pricing request</option><option>Subcontractor quote follow-up</option><option>Sources sought response</option><option>Sources sought follow-up, ask whether a solicitation is planned</option><option>Award status check-in</option><option>Debrief request</option></select>
+   <input class="t" id="mailNote" placeholder="Anything specific to include (optional)">
+   <div class="row" style="margin-top:8px"><button class="btn sm" onclick="draftMail('${id}')">Draft</button><button class="btn line sm" onclick="copyOut('mailOut')">Copy</button></div>
+   <div class="out" id="mailOut" style="display:none"></div></div>`;
+}
+async function addNote(coll,id){const v=$("#noteIn").value.trim();if(!v)return;const d={...data[coll][id]};d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:v}];await save(coll,id,d);openDetail(coll,id,false)}
+async function addTask(coll,id){const v=$("#taskIn").value.trim();if(!v)return;const tid=uid();await save("tasks",tid,{text:v,due:$("#taskDue").value||"",done:"No",linkType:coll,linkId:id});toast("Task added");openDetail(coll,id,false)}
+async function toggleTask(tid){const t={...data.tasks[tid]};t.done=t.done==="Yes"?"No":"Yes";await save("tasks",tid,t);const s=$("#sheet");if(s.dataset.coll==="tasks")openDetail("tasks",tid,false);else if(s.dataset.id)openDetail(s.dataset.coll,s.dataset.id,false)}
+async function toggleReq(id,i){const d={...data.opportunities[id]};d.requirements=d.requirements.map((r,j)=>j===i?{...r,done:!r.done}:r);await save("opportunities",id,d);openDetail("opportunities",id,false)}
+function copyOut(el){const t=$("#"+el).textContent;if(!t)return;navigator.clipboard.writeText(t).then(()=>toast("Copied")).catch(()=>toast("Select and copy manually"))}
+
+/* ---------- Claude features ---------- */
+function aiFail(e,out){if(e&&e.code==="not_granted"){out.textContent="Claude features are off for this view.";return}out.textContent="Could not finish: "+(e&&(e.message||e.code)||"unknown error")}
+async function readSol(id){
+  const txt=$("#solText").value.trim(); const out=$("#readOut"); if(!txt){toast("Paste the solicitation text first");return}
+  out.style.display="";out.textContent="Reading...";$("#readBtn").disabled=true;
+  try{
+    const r=await sample.json(`You are the proposal manager for ${KCAPEX}\n\nRead this federal solicitation text and return ONLY a JSON object with these keys:\n{"title":string,"sol":string,"agency":string,"office":string,"noticeType":"RFQ"|"RFP"|"Sources sought"|"Presolicitation"|"IFB"|"Other","setAside":string,"naics":string,"place":string,"posted":"YYYY-MM-DD" or "","due":"YYYY-MM-DD" or "","dueTime":string,"method":"Email"|"SAM.gov"|"PIEE"|"Portal"|"Mail","contactsTxt":string,"estValue":number|null,"requirements":[string],"summary":string}\n"requirements" is every submission requirement, required form with its exact title, evaluation factor, wage determination, amendment, and deadline the offeror must satisfy, one per item, specific enough to check off. Use "" for unknown strings.\n\nSOLICITATION TEXT:\n${txt.slice(0,60000)}`,{modelTier:"default"});
+    const d={...data.opportunities[id]};
+    for(const k of ["title","sol","agency","office","noticeType","setAside","naics","place","posted","due","dueTime","method","contactsTxt"])if(r[k]&&!d[k])d[k]=r[k];
+    if(r.estValue&&!d.estValue)d.estValue=r.estValue;
+    if(Array.isArray(r.requirements)&&r.requirements.length)d.requirements=r.requirements.map(t=>({text:String(t),done:false}));
+    if(r.summary)d.notes=[...(d.notes||[]),{t:new Date().toLocaleString(),text:"Claude summary: "+r.summary}];
+    if(!d.status||d.status==="found")d.status="reviewing";
+    await save("opportunities",id,d); autoTasks(id,d); toast("Record updated"); openDetail("opportunities",id,false);
+  }catch(e){aiFail(e,out)} finally{const b=$("#readBtn");if(b)b.disabled=false}
+}
+async function scoreOpp(id){
+  const d=data.opportunities[id]; toast("Scoring...");
+  try{
+    const r=await sample.json(`Company profile: ${KCAPEX}\n\nOpportunity:\n${JSON.stringify({...d,notes:undefined,score:undefined},null,1)}\n\nScore this opportunity for KCAPEX from 0 to 100 on likelihood that bidding is worth the effort and can be won. Consider set-aside eligibility (KCAPEX holds no socioeconomic certifications), scope fit, ability to subcontract, price-based evaluation, turnaround time, place of performance, and competition. Return ONLY JSON: {"score":number,"recommendation":"Bid"|"No-bid"|"Bid if a sub is found"|"Respond to sources sought","summary":one sentence,"reasons":[string],"risks":[string]}`,{modelTier:"default",cache:false});
+    const b={...d,score:r}; await save("opportunities",id,b); openDetail("opportunities",id,false);
+  }catch(e){toast(e&&e.code==="not_granted"?"Claude features are off":"Scoring failed")}
+}
+async function draftMail(id){
+  const d=data.opportunities[id]; const type=$("#mailType").value; const note=$("#mailNote").value; const out=$("#mailOut"); out.style.display="";out.textContent="Thinking...";
+  const linked=(d.contactIds||[]).map(x=>data.contacts[x]).filter(Boolean);
+  const contacts=(linked.length?linked:Object.values(data.contacts).filter(c=>c.agency&&d.agency&&d.agency.toLowerCase().includes(c.agency.toLowerCase().slice(0,12)))).map(c=>`${c.name}, ${c.role}, ${c.email}`).join("; ")+((d.subIds||[]).length?" | Subcontractors: "+(d.subIds||[]).map(x=>data.subs[x]).filter(Boolean).map(s=>`${s.company}, ${s.contact||""}, ${s.email||""}`).join("; "):"");
+  try{
+    await sample(`${KCAPEX}\n\nWrite a "${type}" email for this opportunity. Output the subject line first as "Subject: ...", then the body. Keep it short and factual, no marketing language, no parentheses. Include the solicitation number in the subject. For a submission email include offeror name, address, UEI, CAGE, and total price, and ask for confirmation of receipt. For a sources sought response, write it as a capability response with company data, NAICS, past performance, and interest in the requirement, and recommend the set-aside KCAPEX qualifies for.\n\nOpportunity: ${JSON.stringify({...d,notes:undefined,score:undefined,requirements:undefined})}\nKnown contacts: ${contacts||"none on file"}\nExtra instructions: ${note||"none"}`,{modelTier:"default",cache:false,onText:({text})=>{out.textContent=text}});
+  }catch(e){aiFail(e,out)}
+}
+async function brief(){
+  const out=$("#briefOut"); out.style.display="";out.textContent="Thinking...";
+  const act=sortedOpps(o=>ACTIVE.includes(o.status||"found")).map(o=>({title:o.title,sol:o.sol,status:o.status,due:o.due,daysLeft:daysLeft(o.due),price:o.ourPrice,openItems:(o.requirements||[]).filter(r=>!r.done).length}));
+  const tasks=Object.values(data.tasks).filter(t=>t.done!=="Yes").map(t=>({text:t.text,due:t.due}));
+  try{await sample(`${KCAPEX}\n\nToday is ${new Date().toDateString()}. Bid calendar this month: ${seasonNow()}. Write a short morning brief for the owners that fits the bid calendar: what is due soonest and what must happen today, open tasks in priority order, anything stale, and one recommendation. Plain prose and short lists, under 180 words.\n\nActive opportunities: ${JSON.stringify(act)}\nOpen tasks: ${JSON.stringify(tasks)}`,{modelTier:"quick",onText:({text})=>{out.textContent=text}})}catch(e){aiFail(e,out)}
+}
+/* ================= FEEDS: SAM.gov + state and local via Tango ================= */
+const RESTRICTED=/8\(a\)|8a|sdvosb|service-disabled|veteran|wosb|women|hubzone|native|indian|tribal/i;
+const TOAPP={r:"Sources sought",p:"Presolicitation",k:"Combined synopsis",o:"Solicitation"};
+/* Local / State / Federal split (Oct 27, 2026) */
+const TRADE=/janitor|custodial|clean|floor|carpet|tile|hvac|heating|cooling|boiler|chiller|plumb|roof|paint|mold|asbestos|abatement|pest|rodent|snow|grounds|landscap|mow|tree|moving|relocat|furniture|door|window|glass|fence|septic|toilet|waste|trash|refuse|hood|exhaust|duct|vent|kennel|maintenance|repair|renovat|remodel|construction/i;
+const LOCALRX=/\b(city|village|town|township|county|school|schools|district|park|college|university|library|municipal|cps|board of education|forest preserve)\b/i;
+const LEVELS=[["local","Local","Cities, counties, schools and park districts in Illinois and Montana"],["state","State","Illinois and Montana state agencies"],["federal","Federal","SAM.gov, all KCAPEX trades"]];
+const LOCAL_PORTALS=[["City of Chicago, current bids","https://chicago.gov/city/en/depts/dps/isupplier/current-bids.html"],["Cook County, current contract opportunities","https://www.cookcountyil.gov/service/current-contract-opportunities"],["Chicago Public Schools, procurement","https://www.cps.edu/procurement/how-to-become-a-vendor/"],["Chicago Park District, purchasing","https://www.chicagoparkdistrict.com/purchasing"]];
+function levelOf(x){if(x.level)return x.level;if(x.src==="Federal")return"federal";const j=String(x.jur||x.setAside||"").toLowerCase();if(/^(local|education)/.test(j))return"local";if(/^state/.test(j))return"state";return LOCALRX.test(x.agency||"")?"local":"state"}
+function feedLevel(f){return f.level||(f.source==="federal"?"federal":"state")}
+let feedLevelFilter="all", tradeOnly=false;
+/* states the owners do not want to see in the New tab, federal or state and local (set Oct 25, 2026) */
+const BLOCKED_STATES=["CA"];
+const blockedPlace=p=>{const s=String(p||"").trim().toUpperCase();if(!s)return false;if(/CALIFORNIA/.test(s))return true;const st=s.split(",").pop().trim();return BLOCKED_STATES.includes(st)};
+const today=()=>new Date().toISOString().slice(0,10);
+const dayOnly=iso=>{if(!iso)return"";const d=new Date(iso);if(isNaN(d))return String(iso).slice(0,10);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const timeOnly=iso=>{const d=new Date(iso);return isNaN(d)?"":d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit",timeZoneName:"short"})};
+function maybeAutoPull(){
+  if(!mcp||!db||pulling||!canWrite)return;
+  if(!Object.values(data.feeds).some(f=>f.on!==false))return;
+  if(feedMeta.lastRun&&isoDay(new Date(feedMeta.lastRun))===isoDay())return; /* once a day */
+  pullAll(false);
+}
+function mcpMsg(e){const c=e&&e.code;
+  if(c==="server_not_connected")return"Tango is not connected on your account. Add the Tango connector in Claude, then tap Pull now.";
+  if(c==="needs_reauth")return"Tango needs you to sign in again. Reconnect it in Claude's connector settings, then tap Pull now.";
+  if(c==="blocked_by_policy"||c==="approval_required")return"Your organization's settings block this connector call.";
+  if(c==="not_granted"||c==="cancelled")return"Pulls are paused until you allow this page to use Tango. Tap Pull now to be asked again next visit.";
+  if(c==="tool_error")return"Tango reported a problem: "+(e.message||"search failed")+". Check the saved search settings.";
+  return"Pull did not finish: "+(e&&(e.message||c)||"unknown")+". Try Pull now in a minute.";}
+async function toRows(payload,kind){
+  let p=payload; if(typeof p==="string"){try{p=JSON.parse(p)}catch(_){ }}
+  if(p&&typeof p==="object"&&Array.isArray(p.results))return p.results;
+  if(typeof p==="string"&&sample){ // text format fallback: let Claude structure it
+    const keys=kind==="fed"?"opportunity_id,title,solicitation_number,naics_code,set_aside,response_deadline,first_notice_date,last_notice_date,agency_name,office_name,city,state,notice_type_code,contact_name,contact_email,contact_phone,sam_url":"opportunity_id,solicitation_number,solicitation_type,title,state,jurisdiction,agency,posted_date,response_deadline,source_url";
+    const arr=await sample.json(`Convert every result record in this search output to a JSON array of objects with exactly these keys: ${keys}. Use null for missing values. Output only the JSON array.\n\n${p.slice(0,40000)}`,{modelTier:"quick"});
+    return Array.isArray(arr)?arr.map(x=>kind==="fed"?{...x,office:{agency_name:x.agency_name,office_name:x.office_name},place_of_performance:{city:x.city,state:x.state},meta:{notice_type:{code:x.notice_type_code}},primary_contact:{full_name:x.contact_name,email:x.contact_email,phone:x.contact_phone}}:x):[];
+  }
+  return [];
+}
+async function runFeed(fid,f,since){
+  const out=[];
+  if(f.source==="federal"){
+    const args={type:"opportunity",active:true,response_deadline_after:today(),first_notice_date_after:since,limit:50,
+      fields:"opportunity_id,title,solicitation_number,naics_code,set_aside,response_deadline,first_notice_date,last_notice_date,office(*),place_of_performance,primary_contact,meta,sam_url"};
+    if(f.naics&&f.naics.length)args.naics_codes=f.naics; if(f.keyword)args.keyword=f.keyword; if(f.noticeTypes)args.notice_type=f.noticeTypes; if(f.place)args.place_of_performance=f.place;
+    const r=await mcp.callTool("Tango","search_opportunities",args,{cache:false});
+    for(const x of await toRows(r.payload,"fed")){
+      if(!x||!x.opportunity_id)continue; if(x.set_aside&&RESTRICTED.test(x.set_aside))continue;
+      const o=x.office||{},pl=x.place_of_performance||{},pc=x.primary_contact||{},nt=(x.meta&&x.meta.notice_type)||{};
+      if(blockedPlace(pl.state))continue;
+      out.push(["fed-"+x.opportunity_id,{src:"Federal",level:"federal",feed:f.name,title:x.title||"",sol:x.solicitation_number||"",naics:x.naics_code||"",setAside:x.set_aside||"Unrestricted or not stated",
+        due:x.response_deadline||"",posted:x.first_notice_date||"",lastNotice:x.last_notice_date||"",agency:o.agency_name||o.department_name||"",office:o.office_name||"",place:[pl.city,pl.state].filter(Boolean).join(", "),
+        noticeType:TOAPP[nt.code]||nt.type||"",contact:pc.full_name?{name:pc.full_name,email:pc.email||"",phone:pc.phone||""}:null,link:x.sam_url||""}]);
+    }
+  }else{
+    const lvl=feedLevel(f);
+    const jurs=(f.jurisdictions&&f.jurisdictions.length)?f.jurisdictions:(lvl==="local"?["local","education","unknown"]:["state"]);
+    const kws=(f.keywords&&f.keywords.length)?f.keywords:[""];
+    for(const jur of jurs)for(const kw of kws){
+      const args={type:"sled_opportunity",limit:100,first_seen_after:since,response_deadline_after:today(),jurisdiction:jur}; if(kw)args.keyword=kw; if(f.states)args.state=f.states;
+      const r=await mcp.callTool("Tango","search_opportunities",args,{cache:false});
+      for(const x of await toRows(r.payload,"sled")){
+        if(!x||!x.opportunity_id)continue; if(blockedPlace(x.state))continue;
+        const j=x.jurisdiction||jur;
+        const level=j==="state"?"state":j==="unknown"?(LOCALRX.test(x.agency||"")?"local":"state"):"local";
+        out.push(["sled-"+x.opportunity_id,{src:level==="local"?"Local":"State",level,jur:j,feed:f.name,title:x.title||"",sol:x.solicitation_number||"",naics:"",setAside:j+(x.solicitation_type?" · "+x.solicitation_type.toUpperCase():""),
+          due:x.response_deadline||"",posted:x.posted_date||"",agency:x.agency||"",office:"",place:x.state||"",noticeType:"State or local",contact:null,link:x.source_url||""}]);
+      }
+    }
+  }
+  return out;
+}
+async function pullAll(manual,only){
+  if(!mcp){feedErr="Pulls need this page opened inside Claude with the Tango connector.";render();return}
+  pulling=only||"all";feedErr="";render();
+  const by={...(feedMeta.lastRunBy||{})};
+  const sinceFor=l=>{const lr=by[l]||feedMeta.lastRun;return lr?new Date(new Date(lr).getTime()-864e5).toISOString().slice(0,10):new Date(Date.now()-14*864e5).toISOString().slice(0,10)};
+  const sols=new Set(Object.values(data.opportunities).map(o=>(o.sol||"").toUpperCase()).filter(Boolean));
+  let added=0,errs=[];const ran=new Set();
+  for(const [fid,f] of Object.entries(data.feeds)){ if(f.on===false)continue; const l=feedLevel(f); if(only&&l!==only)continue;
+    try{const rows=await runFeed(fid,f,sinceFor(l)); ran.add(l);
+      for(const [id,b] of rows){ if(data.inbox[id])continue; if(b.sol&&sols.has(b.sol.toUpperCase()))continue;
+        await db.doc("inbox/"+id).set({...b,state:"new",found:new Date().toISOString()}); data.inbox[id]={...b,state:"new"}; added++; }
+    }catch(e){errs.push(f.name+": "+mcpMsg(e)); if(e&&["server_not_connected","needs_reauth","not_granted","blocked_by_policy"].includes(e.code))break;}
+  }
+  const cutoff=Date.now()-3*864e5;
+  for(const [id,x] of Object.entries(data.inbox)){ const d=x.due?new Date(x.due).getTime():Infinity; if((x.state!=="new"&&x.found&&new Date(x.found).getTime()<Date.now()-21*864e5)||d<cutoff){try{await db.doc("inbox/"+id).delete()}catch(_){}} }
+  if(ran.size&&(!errs.length||added)){const now=new Date().toISOString();for(const l of ran)by[l]=now;const meta={...feedMeta,lastRunBy:by,lastAdded:added};if(!only)meta.lastRun=now;try{await db.doc("settings/feeds").set(meta)}catch(_){}}
+  pulling=false; feedErr=errs.join(" "); if(manual)toast(added?added+" new":"Nothing new since last pull"); render();
+}
+function inboxCard(id,x){
+  const n=x.due?Math.ceil((new Date(x.due)-new Date())/864e5):null;
+  const days=n===null?`<div class="days done">--<small>no date</small></div>`:`<div class="days ${n<=3?"hot":""}">${n}<small>${n===1?"day left":"days left"}</small></div>`;
+  const tagCls=x.noticeType==="Sources sought"?"green":x.src==="Federal"?"":"amber";
+  return`<div class="card static opp">${days}<div><div class="ttl">${esc(x.title)}</div><div class="meta">${esc([x.sol,x.agency,x.place].filter(Boolean).join(" · "))}</div>
+   <span class="tag ${tagCls}">${esc(x.noticeType||x.src)}</span><span class="tag">${esc(x.setAside)}</span>${x.naics?`<span class="tag">NAICS ${esc(x.naics)}</span>`:""}${x.rank?`<span class="tag green">Claude ${esc(x.rank.score)}</span>`:""}
+   ${x.rank?`<div class="sub" style="margin-top:6px">${esc(x.rank.why)}</div>`:""}
+   <div class="row" style="margin-top:10px"><button class="btn sm" onclick="takeIn('${id}')">Add to pipeline</button><button class="btn line sm" onclick="dismissIn('${id}')">Dismiss</button>${x.link?`<a class="btn ghost sm" href="${esc(x.link)}" target="_blank" rel="noopener">Open notice</a>`:""}</div></div></div>`}
+function feedRow(fid,f){const lv=feedLevel(f);
+  const meta=lv==="federal"?"SAM.gov · NAICS "+(f.naics||[]).join(", ")+(f.noticeTypes?" · types "+f.noticeTypes:""):(f.states||"all states")+" · "+((f.keywords||[]).length?"keywords "+f.keywords.join(", "):"everything posted");
+  return`<div class="card" onclick="feedForm('${fid}')"><div class="ttl">${esc(f.name)}${f.on===false?' <span class="tag red">Off</span>':""}</div><div class="meta">${esc(meta)}</div></div>`}
+function localNote(){return`<div class="notice">The automatic pull does not read most city, county and school bid portals in Illinois and Montana yet, so Local will stay thin. Open the portals list below each week, check each one, and tap Checked. Add anything that fits from the Pipeline tab.</div>`}
+/* ---------- bid portal directory: manual weekly checks (added Oct 27, 2026) ---------- */
+const PORTALS_BASE=[{"id":"p-IL-illinois-bidbuy","name":"Illinois BidBuy","url":"https://www.bidbuy.illinois.gov/bso/","level":"state","st":"IL","kind":"state","note":"State eProcurement; ISBE and regional education offices also post here"},{"id":"p-IL-illinois-procurement-gateway-ipg","name":"Illinois Procurement Gateway, IPG","url":"https://ipg.vendorreg.com/","level":"state","st":"IL","kind":"state","note":"Register here before bidding state work; Small Business Set-Aside"},{"id":"p-IL-illinois-public-higher-education-procurement-bulletin","name":"Illinois Public Higher Education Procurement Bulletin","url":"https://www.procure.stateuniv.state.il.us/","level":"state","st":"IL","kind":"state","note":"Public universities and community colleges"},{"id":"p-MT-montana-emacs-state-agencies-and-universities","name":"Montana eMACS, state agencies and universities","url":"https://bids.sciquest.com/apps/Router/PublicEvent?CustomerOrg=StateOfMontana","level":"state","st":"MT","kind":"state","note":"All Montana state agency and university ITBs and RFPs"},{"id":"p-MT-montana-architecture-and-engineering-division-bids","name":"Montana Architecture and Engineering Division bids","url":"https://architecture.mt.gov/Bids","level":"state","st":"MT","kind":"state","note":"State building projects"},{"id":"p-MT-montana-department-of-transportation-bid-lettings","name":"Montana Department of Transportation, bid lettings","url":"https://mdt.mt.gov/business/contracting/","level":"state","st":"MT","kind":"state","note":""},{"id":"p-MT-montana-fish-wildlife-and-parks-upcoming-bid-openings","name":"Montana Fish, Wildlife and Parks, upcoming bid openings","url":"https://fwp.mt.gov/aboutfwp/design-and-construction/upcoming-bid-openings","level":"state","st":"MT","kind":"state","note":""},{"id":"p-MT-montana-department-of-justice-public-notices","name":"Montana Department of Justice, public notices","url":"https://dojmt.gov/nrdp-public-notices/","level":"state","st":"MT","kind":"state","note":""},{"id":"p-MT-montana-state-university-current-bids","name":"Montana State University, current bids","url":"https://www.montana.edu/ubs/procurementservices/currentbids.html","level":"state","st":"MT","kind":"state","note":""},{"id":"p-IL-bidnet-direct-illinois-purchasing-group","name":"BidNet Direct, Illinois Purchasing Group","url":"https://www.bidnetdirect.com/illinois","level":"local","st":"IL","kind":"aggregator","note":"Main hub for Illinois cities, counties and school districts"},{"id":"p-IL-rfp-school-watch-illinois-k-12","name":"RFP School Watch, Illinois K-12","url":"https://www.rfpschoolwatch.com/bid-opportunities/illinois","level":"local","st":"IL","kind":"aggregator","note":"Over 1,000 Illinois school districts"},{"id":"p-IL-illinois-bid-network","name":"Illinois Bid Network","url":"","level":"local","st":"IL","kind":"aggregator","note":"Link needed"},{"id":"p-IL-city-of-chicago-current-bids","name":"City of Chicago, current bids","url":"https://chicago.gov/city/en/depts/dps/isupplier/current-bids.html","level":"local","st":"IL","kind":"city","note":""},{"id":"p-IL-cook-county-current-contract-opportunities","name":"Cook County, current contract opportunities","url":"https://www.cookcountyil.gov/service/current-contract-opportunities","level":"local","st":"IL","kind":"county","note":""},{"id":"p-IL-chicago-public-schools-procurement","name":"Chicago Public Schools, procurement","url":"https://www.cps.edu/procurement/how-to-become-a-vendor/","level":"local","st":"IL","kind":"school","note":"Bids through the CPS iSupplier portal"},{"id":"p-IL-chicago-park-district-purchasing","name":"Chicago Park District, purchasing","url":"https://www.chicagoparkdistrict.com/purchasing","level":"local","st":"IL","kind":"other","note":""},{"id":"p-MT-rfp-school-watch-montana-k-12","name":"RFP School Watch, Montana K-12","url":"https://www.rfpschoolwatch.com/bid-opportunities/montana","level":"local","st":"MT","kind":"aggregator","note":"Hundreds of Montana school systems"},{"id":"p-MT-school-services-of-montana","name":"School Services of Montana","url":"","level":"local","st":"MT","kind":"aggregator","note":"Multi-district purchasing; link needed"},{"id":"p-MT-great-falls-public-schools","name":"Great Falls Public Schools","url":"https://www.rfpschoolwatch.com/bid-opportunities/montana/great-falls-elementary-school-district","level":"local","st":"MT","kind":"school","note":"Through RFP School Watch"},{"id":"p-MT-belgrade-school-district-44","name":"Belgrade School District 44","url":"","level":"local","st":"MT","kind":"school","note":"Link needed"},{"id":"p-MT-benton-lake-elementary","name":"Benton Lake Elementary","url":"https://bentonlakeelementary.school/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-big-sandy-school-district","name":"Big Sandy School District","url":"https://www.bigsandy.k12.mt.us/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-fort-benton-school-district","name":"Fort Benton School District","url":"https://www.fortbentonschools.com/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-geraldine-public-schools","name":"Geraldine Public Schools","url":"https://geraldine.k12.mt.us/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-highwood-public-schools","name":"Highwood Public Schools","url":"https://www.highwood.k12.mt.us/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-stevensville-public-schools-bid-invitations","name":"Stevensville Public Schools, bid invitations","url":"https://www.stevensvilleschools.org/bid-invitation/","level":"local","st":"MT","kind":"school","note":""},{"id":"p-MT-belgrade","name":"Belgrade","url":"","level":"local","st":"MT","kind":"city","note":"Link needed"},{"id":"p-MT-big-sandy","name":"Big Sandy","url":"https://townofbigsandy.com/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-billings","name":"Billings","url":"https://ci.billings.mt.us/bids.aspx","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-bozeman","name":"Bozeman","url":"https://www.bozeman.net/departments/administration/city-clerk/bids-rfps-rfqs","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-cascade","name":"Cascade","url":"https://www.cascademontana.com/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-columbia-falls","name":"Columbia Falls","url":"https://www.cityofcolumbiafalls.org/rfps","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-deer-lodge","name":"Deer Lodge","url":"https://www.deerlodgecity.com/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-fort-benton","name":"Fort Benton","url":"https://www.cityoffortbenton.com/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-great-falls","name":"Great Falls","url":"https://greatfallsmt.net/rfps","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-havre","name":"Havre","url":"","level":"local","st":"MT","kind":"city","note":"Link needed"},{"id":"p-MT-helena","name":"Helena","url":"https://www.helenamt.gov/Business/Bids-RFP-RFQ","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-kalispell","name":"Kalispell","url":"https://www.kalispell.com/bids.aspx","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-laurel","name":"Laurel","url":"https://cityoflaurelmontana.com/rfps","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-lewistown","name":"Lewistown","url":"https://cityoflewistown.com/government/finance","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-livingston","name":"Livingston","url":"https://www.livingstonmontana.org/rfps","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-miles-city","name":"Miles City","url":"https://milescity-mt.org/bid-packages/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-missoula","name":"Missoula","url":"https://www.ci.missoula.mt.us/bids.aspx","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-scobey","name":"Scobey","url":"https://www.cityofscobey.com/","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-sidney","name":"Sidney","url":"https://cityofsidneymt.com/rfps","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-whitefish","name":"Whitefish","url":"https://www.cityofwhitefish.org/Bids.aspx","level":"local","st":"MT","kind":"city","note":""},{"id":"p-MT-anaconda-deer-lodge-county","name":"Anaconda-Deer Lodge County","url":"https://adlc.us/Bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-beaverhead-county","name":"Beaverhead County","url":"https://beaverheadcounty.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-big-horn-county","name":"Big Horn County","url":"https://bighorncountymt.gov/Bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-blaine-county","name":"Blaine County","url":"https://blainecounty-mt.gov/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-broadwater-county","name":"Broadwater County","url":"https://www.broadwatercountymt.com/public-notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-butte-silver-bow","name":"Butte-Silver Bow","url":"https://co.silverbow.mt.us/bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-carbon-county","name":"Carbon County","url":"https://co.carbon.mt.us/rfps/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-carter-county","name":"Carter County","url":"https://cartercountymontana.squarespace.com/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-cascade-county","name":"Cascade County","url":"https://www.cascadecountymt.gov/Bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-chouteau-county","name":"Chouteau County","url":"https://centralmontana.com/montana_counties/chouteau_county/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-custer-county","name":"Custer County","url":"https://custercountymt.gov/news-announcements/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-dawson-county","name":"Dawson County","url":"https://www.dawsoncountymontana.com/departments/commissioners/bid_projects/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-fallon-county","name":"Fallon County","url":"https://www.falloncounty.net/?cat=26","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-fergus-county","name":"Fergus County","url":"https://www.co.fergus.mt.us/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-flathead-county","name":"Flathead County","url":"https://flathead.mt.gov/department-directory/commissioners-office/public-notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-gallatin-county","name":"Gallatin County","url":"https://gallatincomt.virtualtownhall.net/public-notices-legal-notices-bids-and-rfps","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-garfield-county","name":"Garfield County","url":"https://www.garfieldco.us/index.html","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-glacier-county","name":"Glacier County","url":"http://www.glaciercountygov.com/?page_id=11822","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-golden-valley-county","name":"Golden Valley County","url":"https://gvcomt.wordpress.com/gvc-business-opportunities/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-granite-county","name":"Granite County","url":"https://www.granitecountymt.us/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-hill-county","name":"Hill County","url":"https://hillcounty.us/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-jefferson-county","name":"Jefferson County","url":"https://jeffersoncounty-mt.gov/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-judith-basin-county","name":"Judith Basin County","url":"http://www.jbcounty.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-lake-county","name":"Lake County","url":"https://www.lakemt.gov/Bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-lewis-and-clark-county","name":"Lewis and Clark County","url":"https://www.lccountymt.gov/Government/Grants-and-Purchasing/Bids-and-Proposals-Current","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-liberty-county","name":"Liberty County","url":"https://www.libertycountymt.gov/public-notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-lincoln-county","name":"Lincoln County","url":"http://lincolncountymt.us/public-notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-madison-county","name":"Madison County","url":"https://www.madisoncountymt.gov/424/PublicLegal-Notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-mccone-county","name":"McCone County","url":"https://mcconecountymt.com/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-meagher-county","name":"Meagher County","url":"https://meagherco.com/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-mineral-county","name":"Mineral County","url":"https://co.mineral.mt.us/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-missoula-county","name":"Missoula County","url":"https://www.missoulacounty.us/government/administration/auditor-s-office/bids-proposals/current-list-of-bids-proposals","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-musselshell-county","name":"Musselshell County","url":"https://musselshellcounty.org/category/public-notice/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-park-county","name":"Park County","url":"https://www.parkcounty.org/Government-Departments/Public-Works/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-petroleum-county","name":"Petroleum County","url":"https://petroleumcountymt.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-phillips-county","name":"Phillips County","url":"https://phillco.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-pondera-county","name":"Pondera County","url":"https://www.ponderacountymontana.org/news","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-powder-river-county","name":"Powder River County","url":"https://prco.mt.gov/Public-Notices","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-powell-county","name":"Powell County","url":"https://www.powellcountymt.gov/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-prairie-county","name":"Prairie County","url":"https://prairiecounty.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-ravalli-county","name":"Ravalli County","url":"https://ravalli.us/bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-richland-county","name":"Richland County","url":"https://www.richland.org/bids.aspx","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-roosevelt-county","name":"Roosevelt County","url":"https://rooseveltco.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-rosebud-county","name":"Rosebud County","url":"https://rosebudcountymt.gov/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-sanders-county","name":"Sanders County","url":"https://co.sanders.mt.us/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-sheridan-county","name":"Sheridan County","url":"https://www.sheridancountymt.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-stillwater-county","name":"Stillwater County","url":"https://www.stillwatercountymt.gov/government/rfq-rfp-bids/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-sweet-grass-county","name":"Sweet Grass County","url":"https://sweetgrasscountygov.com/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-teton-county","name":"Teton County","url":"https://tetoncomt.org/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-toole-county","name":"Toole County","url":"https://www.toolecountymt.gov/index.html","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-valley-county","name":"Valley County","url":"https://www.valleycountymt.net/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-yellowstone-county","name":"Yellowstone County","url":"https://www.yellowstonecountymt.gov/purchasing/","level":"local","st":"MT","kind":"county","note":""},{"id":"p-MT-glacier-county-port-authority","name":"Glacier County Port Authority","url":"https://www.glacierportauthority.org/who-we-are","level":"local","st":"MT","kind":"other","note":""},{"id":"p-MT-missoula-montana-airport","name":"Missoula Montana Airport","url":"https://flymissoula.com/construction/","level":"local","st":"MT","kind":"other","note":""},{"id":"p-MT-west-yellowstone-airport","name":"West Yellowstone Airport","url":"http://www.yellowstoneairport.org/news-events.shtml","level":"local","st":"MT","kind":"other","note":""},{"id":"p-MT-sun-prairie-village-water-and-sewer-district","name":"Sun Prairie Village Water and Sewer District","url":"https://www.spvws.com/current-projects","level":"local","st":"MT","kind":"other","note":""}];
+const PKIND={aggregator:"Bid hub",state:"State",city:"City or town",county:"County",school:"School",other:"Other"};
+const portalSt={local:"all",state:"all"}, portalOpen={local:false,state:false};
+function portalList(){const m={};for(const p of PORTALS_BASE)m[p.id]={...p};for(const [id,d] of Object.entries(data.portals||{}))m[id]={...(m[id]||{}),...d,id};return Object.values(m).filter(p=>!p.hidden&&p.name)}
+const portalDue=p=>{const n=daysSince(p.lastChecked);return n===null||n>7};
+function portalsBlock(k){
+  const all=portalList().filter(p=>p.level===k); if(!all.length&&k!=="local"&&k!=="state")return"";
+  const f=portalSt[k]; const rank={aggregator:0,state:0,school:1,city:2,county:3,other:4};
+  const list=all.filter(p=>f==="all"||(f==="due"?portalDue(p):p.st===f)).sort((a,b)=>(rank[a.kind]??5)-(rank[b.kind]??5)||(a.st<b.st?-1:a.st>b.st?1:0)||a.name.localeCompare(b.name));
+  const nDue=all.filter(portalDue).length;
+  const chip=(v,l)=>`<button class="chip ${f===v?"on":""}" onclick="portalSt['${k}']='${v}';render()">${esc(l)}</button>`;
+  const rows=list.map(p=>{const n=daysSince(p.lastChecked);const d=portalDue(p);
+    return`<div class="prow"><div><div class="ttl">${esc(p.name)}</div><div class="meta">${esc([p.st==="IL"?"Illinois":"Montana",PKIND[p.kind]||"",p.note].filter(Boolean).join(" · "))}</div><span class="rel ${d?"due":"warm"}">${p.lastChecked?(n===0?"Checked today":"Checked "+n+"d ago"):"Not checked yet"}</span></div>
+    <div class="pa">${/^https?:\/\//i.test(p.url||"")?`<a class="btn ghost sm nbtn" href="${esc(p.url)}" target="_blank" rel="noopener">Open ↗</a>`:`<button class="btn line sm nbtn" onclick="portalForm('${p.id}')">Add link</button>`}<button class="btn sm nbtn" onclick="portalChecked('${p.id}')">Checked</button><button class="btn line sm nbtn" onclick="portalForm('${p.id}')">Edit</button></div></div>`}).join("");
+  return`<details class="portals" ${portalOpen[k]?"open":""} ontoggle="portalOpen['${k}']=this.open"><summary>${k==="local"?"City, county and school":"State"} bid portals · ${all.length}<span class="sub">${nDue} need a check this week</span></summary>
+  <div class="chips">${chip("all","All")}${chip("IL","Illinois")}${chip("MT","Montana")}${chip("due","Needs a check "+nDue)}</div>
+  ${rows||'<div class="empty">No portals in this filter.</div>'}
+  <div class="row" style="margin:10px 0"><button class="btn line sm" onclick="portalForm(null,'${k}')">Add portal</button></div></details>`;
+}
+async function portalChecked(id){const prev=data.portals[id]||{};if(await save("portals",id,{...prev,lastChecked:isoDay()}))toast("Marked checked");render()}
+function portalForm(id,lvl){
+  const p=id?portalList().find(x=>x.id===id)||{}:{level:lvl||"local",st:"IL",kind:"city"};
+  const s=$("#sheet");s.dataset.coll="";s.dataset.id="";s.dataset.mode="edit";
+  const opt=(name,cur,pairs)=>`<select class="t" name="${name}">${pairs.map(([v,l])=>`<option value="${v}" ${cur===v?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  s.innerHTML=`<div class="bar"><button class="back" onclick="closeSheet()">Cancel</button><div class="row">${id?`<button class="btn danger sm" onclick="portalHide('${id}')">Remove</button>`:""}<button class="btn sm" onclick="portalSave('${id||""}')">Save</button></div></div>
+  <h1>${id?"Edit":"New"} bid portal</h1><form id="pf" onsubmit="return false">
+  <label class="f">Name<input class="t" name="name" value="${esc(p.name||"")}"></label>
+  <label class="f">Link<input class="t" name="url" inputmode="url" placeholder="https://" value="${esc(p.url||"")}"></label>
+  <label class="f">Level${opt("level",p.level,[["local","Local: cities, counties, schools"],["state","State agencies and universities"]])}</label>
+  <label class="f">State${opt("st",p.st,[["IL","Illinois"],["MT","Montana"]])}</label>
+  <label class="f">Type${opt("kind",p.kind,Object.entries(PKIND))}</label>
+  <label class="f">Note<input class="t" name="note" value="${esc(p.note||"")}"></label></form>`;
+  s.classList.add("open");s.scrollTop=0}
+async function portalSave(id){const fd=new FormData($("#pf"));const g=k=>(fd.get(k)||"").toString().trim();
+  if(!g("name")){toast("Add a name");return}
+  const pid=id||("p-"+uid());const prev=data.portals[pid]||{};
+  if(await save("portals",pid,{...prev,name:g("name"),url:g("url"),level:g("level"),st:g("st"),kind:g("kind"),note:g("note"),hidden:false})){toast("Portal saved");closeSheet()}}
+async function portalHide(id){if(!await ask("Remove this portal from the list?",{ok:"Remove"}))return;const prev=data.portals[id]||{};await save("portals",id,{...prev,hidden:true});closeSheet()}
+function renderFeed(){
+  const all=Object.entries(data.inbox).filter(([,x])=>x.state==="new"&&!blockedPlace(x.place));
+  const shown=all.filter(([,x])=>!tradeOnly||TRADE.test(x.title||""));
+  const lv=e=>levelOf(e[1]);
+  const lastBy=feedMeta.lastRunBy||{};
+  const fmt=t=>t?new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"never";
+  const sorter=(a,b)=>((b[1].rank?.score??-1)-(a[1].rank?.score??-1))||((a[1].due||"9")<(b[1].due||"9")?-1:1);
+  const mo=new Date().getMonth();
+  const short=t=>{if(!t)return"never";const d=new Date(t);return isoDay(d)===isoDay()?d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):d.toLocaleDateString([],{month:"short",day:"numeric"})};
+  const pick=LEVELS.map(([k,l])=>{const n=shown.filter(e=>lv(e)===k).length;const sz=SEASON.find(z=>z.lv.toLowerCase()===k);const md=sz?sz.md[mo]:"";const on=feedLevelFilter===k;
+    return`<button class="lvlcard ${on?"on":""}" aria-pressed="${on}" onclick="feedLevelFilter=feedLevelFilter==='${k}'?'all':'${k}';render()"><span class="lv">${esc(l)}</span><span class="md">${n} new</span><span class="sb">${pulling===k||pulling==="all"?"Pulling...":"Pulled "+esc(short(lastBy[k]||feedMeta.lastRun))}</span></button>`}).join("");
+  const chips=`<button class="chip ${feedLevelFilter==="all"?"on":""}" onclick="feedLevelFilter='all';render()">All ${shown.length}</button><button class="chip ${tradeOnly?"on":""}" onclick="tradeOnly=!tradeOnly;render()">KCAPEX trades only</button>`;
+  const sec=([k,l,desc])=>{ if(feedLevelFilter!=="all"&&feedLevelFilter!==k)return"";
+    const items=shown.filter(e=>lv(e)===k).sort(sorter);
+    const feeds=Object.entries(data.feeds).filter(([,f])=>feedLevel(f)===k);
+    const busy=pulling===k||pulling==="all";
+    return`<h2>${esc(l)} <span class="sub">${items.length} new</span></h2><p class="sub" style="margin-bottom:6px">${esc(desc)} · Last pull ${esc(fmt(lastBy[k]||feedMeta.lastRun))}</p>
+    <div class="row"><button class="btn sm" ${pulling||!mcp?"disabled":""} onclick="pullAll(true,'${k}')">${busy?"Pulling...":"Pull "+esc(l)}</button><button class="btn line sm" onclick="feedForm(null,'${k}')">Add ${esc(l.toLowerCase())} search</button></div>
+    ${k==="local"?localNote():""}${k!=="federal"?portalsBlock(k):""}
+    <div style="margin-top:10px">${items.length?items.map(([id,x])=>inboxCard(id,x)).join(""):`<div class="empty">Nothing new for ${esc(l.toLowerCase())}${tradeOnly?" in KCAPEX trades":""}.</div>`}</div>
+    ${feeds.length?`<p class="sub" style="margin:10px 0 4px">Saved ${esc(l.toLowerCase())} searches</p>${feeds.map(([fid,f])=>feedRow(fid,f)).join("")}`:""}`};
+  return`<h1>New opportunities</h1><p class="sub">Pulled once a day when you open the app. Tap Local, State or Federal to see just that pull. State and local cover state agencies, cities, counties and schools in Illinois and Montana.</p>
+  <div class="row"><button class="btn sm" ${pulling||!mcp?"disabled":""} onclick="pullAll(true)">${pulling==="all"?"Pulling...":"Pull all"}</button>${sample&&all.length?`<button class="btn ghost sm" onclick="rankIn()">Rank with Claude</button>`:""}</div>
+  ${!mcp?'<div class="notice">New opportunities are pulled by the Claude version of your Pipeline, which uses the Tango connector. This phone app shows what was copied over and cannot run pulls itself.</div>':""}
+  ${feedErr?`<div class="notice">${esc(feedErr)}</div>`:""}
+  <div class="lvlpick">${pick}</div><div class="chips">${chips}</div>${LEVELS.map(sec).join("")}`}
+function feedForm(fid,lvl){
+  const f=fid?data.feeds[fid]:{source:lvl==="federal"?"federal":"state",level:lvl||"federal",on:true,naics:[],keywords:[],states:lvl&&lvl!=="federal"?"IL|MT":""};
+  const L=feedLevel(f);
+  const s=$("#sheet");s.dataset.coll="";s.dataset.id="";s.dataset.mode="edit";
+  s.innerHTML=`<div class="bar"><button class="back" onclick="closeSheet()">Cancel</button><div class="row">${fid?`<button class="btn danger sm" onclick="delFeed('${fid}')">Delete</button>`:""}<button class="btn sm" onclick="saveFeed('${fid||""}')">Save</button></div></div>
+  <h1>${fid?"Edit":"New"} saved search</h1><form id="ff" onsubmit="return false">
+  <label class="f">Name<input class="t" name="name" value="${esc(f.name||"")}"></label>
+  <label class="f">Level<select class="t" name="level"><option value="local" ${L==="local"?"selected":""}>Local: cities, counties, schools</option><option value="state" ${L==="state"?"selected":""}>State agencies</option><option value="federal" ${L==="federal"?"selected":""}>Federal, SAM.gov</option></select></label>
+  <label class="f">NAICS codes, federal only, comma separated<input class="t" name="naics" value="${esc((f.naics||[]).join(", "))}"></label>
+  <label class="f">Notice types, federal only<select class="t" name="noticeTypes"><option value="" ${!f.noticeTypes?"selected":""}>All</option><option value="o|k" ${f.noticeTypes==="o|k"?"selected":""}>Solicitations only</option><option value="r" ${f.noticeTypes==="r"?"selected":""}>Sources sought only</option><option value="r|p" ${f.noticeTypes==="r|p"?"selected":""}>Sources sought and presolicitations</option></select></label>
+  <label class="f">Place of performance, federal only, 2-letter state<input class="t" name="place" value="${esc(f.place||"")}"></label>
+  <label class="f">Keyword, federal only, optional<input class="t" name="keyword" value="${esc(f.keyword||"")}"></label>
+  <label class="f">States, state and local only, like IL|MT<input class="t" name="states" value="${esc(f.states||"")}"></label>
+  <label class="f">Keywords, state and local only, optional. Leave blank to pull everything posted<input class="t" name="keywords" value="${esc((f.keywords||[]).join(", "))}"></label>
+  <label class="f">On<select class="t" name="on"><option value="yes" ${f.on!==false?"selected":""}>Yes</option><option value="no" ${f.on===false?"selected":""}>Paused</option></select></label></form>`;
+  s.classList.add("open");s.scrollTop=0}
+async function saveFeed(fid){const fd=new FormData($("#ff"));const g=k=>(fd.get(k)||"").toString().trim();const level=g("level")||"federal";
+  const prev=fid?data.feeds[fid]||{}:{};
+  const body={...prev,name:g("name")||"Saved search",level,source:level==="federal"?"federal":"state",naics:g("naics").split(/[,\s]+/).filter(Boolean),noticeTypes:g("noticeTypes"),place:g("place").toUpperCase(),keyword:g("keyword"),states:g("states").toUpperCase().replace(/\s/g,""),keywords:g("keywords").split(",").map(x=>x.trim()).filter(Boolean),on:g("on")!=="no"};
+  if(prev.level!==level)delete body.jurisdictions;
+  const id=fid||uid(); if(await save("feeds",id,body)){toast("Saved search saved");closeSheet()}}
+async function delFeed(fid){if(!await ask("Delete this saved search?"))return;if(db){try{await db.doc("feeds/"+fid).delete()}catch(e){toast("Delete failed")}}else{delete data.feeds[fid]}closeSheet()}
+async function dismissIn(id){const x={...data.inbox[id],state:"dismissed"};if(db){try{await db.doc("inbox/"+id).set(x)}catch(e){toast("Could not update")}}else{data.inbox[id]=x;render()}}
+async function takeIn(id){
+  const x=data.inbox[id]; if(!x)return;
+  let contactIds=[];
+  if(x.contact&&x.contact.email){const hitc=Object.entries(data.contacts).find(([,c])=>(c.email||"").toLowerCase()===x.contact.email.toLowerCase());
+    if(hitc)contactIds=[hitc[0]];else{const cid=uid();await save("contacts",cid,{name:x.contact.name,email:x.contact.email,phone:x.contact.phone,agency:x.agency,office:x.office,role:"Contracting Officer",title:""});contactIds=[cid]}}
+  const oid=id; const body={title:x.title,sol:x.sol,agency:x.agency,office:x.office,noticeType:x.noticeType||"Other",setAside:x.setAside,naics:x.naics,place:x.place,posted:dayOnly(x.posted),due:dayOnly(x.due),dueTime:x.due?timeOnly(x.due):"",
+    method:"Email",status:"found",link:x.link,contactIds,...(x.lastNotice?{lastNotice:x.lastNotice}:{}),...(typeof x.amended==="boolean"?{amended:x.amended}:{}),notes:[{t:new Date().toLocaleString(),text:`Added from saved search "${x.feed}" (${x.src}).${x.rank?" Claude rank "+x.rank.score+": "+x.rank.why:""}`}]};
+  if(await save("opportunities",oid,body)){autoTasks(oid,body);if(db){try{await db.doc("inbox/"+id).set({...x,state:"added"})}catch(_){}}toast("Added to pipeline");openDetail("opportunities",oid)}}
+async function rankIn(){
+  const items=Object.entries(data.inbox).filter(([,x])=>x.state==="new").slice(0,40).map(([id,x])=>({id,level:levelOf(x),title:x.title,type:x.noticeType,setAside:x.setAside,naics:x.naics,agency:x.agency,place:x.place,due:x.due}));
+  toast("Ranking...");
+  try{const r=await sample.json(`${KCAPEX}\nToday is ${new Date().toDateString()}. For 6-7 months KCAPEX is bidding only 1-2 RFQs a month and prioritizing sources sought responses to shape future set-asides.\n\nScore each opportunity 0-100 for KCAPEX to pursue now and give a one-sentence reason. Consider eligibility (no socioeconomic certifications), fit to trades it can subcontract, deadline feasibility, and strategic value of sources sought. Return ONLY a JSON array of {"id":string,"score":number,"why":string} for every item.\n\n${JSON.stringify(items)}`,{modelTier:"default",cache:false});
+    for(const it of (Array.isArray(r)?r:[])){const x=data.inbox[it.id];if(!x)continue;const b={...x,rank:{score:Math.round(it.score),why:String(it.why||"")}};if(db){try{await db.doc("inbox/"+it.id).set(b)}catch(_){}}else data.inbox[it.id]=b}
+    render();toast("Ranked")}catch(e){toast(e&&e.code==="not_granted"?"Claude features are off":"Ranking failed")}}
+boot();
+if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script>
 </body>
 </html>

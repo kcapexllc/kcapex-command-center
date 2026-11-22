@@ -1,13 +1,13 @@
 {
-  "name": "KCapex Command Center",
-  "short_name": "KCapex",
-  "description": "KCapex internal GovCon command center: bids, leads, jobs, contracts and messages.",
+  "name": "KCAPEX Pipeline",
+  "short_name": "KCAPEX",
+  "description": "KCAPEX internal GovCon pipeline: bids, quick-turn, follow-ups, people, subs and past performance.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b1220",
-  "theme_color": "#0b1220",
+  "background_color": "#f7f5fb",
+  "theme_color": "#4c1d95",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

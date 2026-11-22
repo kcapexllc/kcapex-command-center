@@ -1,6 +1,6 @@
 // Offline cache for the app shell. Bump VERSION when you change files.
-const VERSION = 'kcapex-v3';
-const ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest',
+const VERSION = 'kcapex-pipeline-v1';
+const ASSETS = ['./', './index.html', './claude-shim.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -10,9 +10,10 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
-// Network first (so updates show up), fall back to cache when offline.
+// Network first so updates show up; fall back to cache when offline. Data calls (/api/) are never cached here.
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
   e.respondWith(
     fetch(e.request).then((res) => {
       if (res.ok && !res.redirected) {

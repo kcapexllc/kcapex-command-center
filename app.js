@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-8';
+  const APP_VERSION = '2026.11.23-9';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -370,6 +370,7 @@
     renderNav();
     const c = COLLECTIONS[ui.view];
     $('#view-title').textContent = TITLES[ui.view] || (c ? c.label : '');
+    $('#view-sub').textContent = viewSub();
     $('#fab').hidden = !(c || ui.view === 'dashboard');
     const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null, keepAsk = ae && ae.id === 'ask-in';
     const el = $('#view');
@@ -384,6 +385,28 @@
     } catch (err) { console.error(err); el.innerHTML = `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
     if (keepAsk) { const s = $('#ask-in'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
+  }
+  // The small line under the title: a greeting on Home, a live count everywhere else, plus when Claude last synced.
+  function viewSub() {
+    try {
+      const n = counts(), h = new Date().getHours(), m = window.kcMeta || {};
+      const synced = m.lastSync ? new Date(m.lastSync).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      switch (ui.view) {
+        case 'dashboard': return `${h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'}, Kobe · ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+        case 'more': return `${n.new} new · ${n.quick} quick-turn`;
+        case 'bids': return `${n.bids} working${synced ? ' · synced ' + synced : ''}`;
+        case 'leads': return `${n.leads} open`;
+        case 'jobs': return `${n.jobs} active`;
+        case 'contracts': return `${n.contracts} awards`;
+        case 'messages': return n.messages ? `${n.messages} need a reply` : 'All caught up';
+        case 'ask': return projView === 'list' ? 'One folder per bid' : projView ? 'Bid folder' : 'Chats and bid folders';
+        case 'new': return `${n.new} from your saved searches`;
+        case 'quick': return `${n.quick} open · 3 to 6 days`;
+        case 'invoices': return `${n.invoices} unpaid`;
+        case 'visits': return `${n.visits} upcoming`;
+        default: return synced ? `Synced ${synced}` : '';
+      }
+    } catch (_) { return ''; }
   }
   let raf = 0; const scheduleRender = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); };
 
@@ -1309,6 +1332,7 @@
   document.addEventListener('change', (e) => { if (e.target.id === 'proj-file' && e.target.files.length) { addProjectFiles(projView, [...e.target.files]); e.target.value = ''; return; } if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));
+  $('#title-btn').addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
   $('#more-btn').addEventListener('click', () => (topMenu.hidden ? openTopMenu() : closeTopMenu()));
   $('#claude-btn').addEventListener('click', () => go('ask'));
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });

@@ -20,6 +20,7 @@
     ask: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
     invoices: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3"/>',
     intel: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
   };
   const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
@@ -38,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-2';
+  const APP_VERSION = '2026.11.23-3';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -1019,7 +1020,7 @@
         ${tile(EXTRA[0], `${n.new} new`)}${tile(EXTRA[1], `${n.quick} open`)}
         ${tile(EXTRA[2], `${list('contacts').length} contacts`)}${tile(EXTRA[3], `${list('subs').length} subcontractors`)}${tile(EXTRA[4], `${list('pastperf').length} past performance`)}
         ${tile(EXTRA[5], `${list('invoices').length} logged · ${n.invoices} unpaid`)}${tile(EXTRA[6], `${liveOpps().filter((o) => o.awardPrice || o.awardee).length} award results`)}
-        ${tile(EXTRA[7], `${n.visits} upcoming`)}${tile(EXTRA[8], 'Ask about your bids')}<button class="tile" data-action="proj-open-list">📁<b>Bid folders</b><span>${folderList().filter((f) => !f.closed).length} open</span></button>
+        ${tile(EXTRA[7], `${n.visits} upcoming`)}${tile(EXTRA[8], 'Ask about your bids')}<button class="tile" data-action="proj-open-list">${icon('folder')}<b>Bid folders</b><span>${folderList().filter((f) => !f.closed).length} open</span></button>
       </div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Install on your phone</h2>
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>

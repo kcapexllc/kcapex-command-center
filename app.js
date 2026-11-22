@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-12';
+  const APP_VERSION = '2026.11.23-13';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -340,7 +340,7 @@
     if (view !== ui.view) { scrollMem[ui.view] = window.scrollY; if (!isBack) { navStack.push(ui.view); if (navStack.length > 30) navStack.shift(); } }
     const same = view === ui.view; ui.view = view; try { closeTopMenu(); } catch (_) { /* menu not ready yet */ }
     try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
-    if (drawn) { renderChrome(); return; }
+    if (drawn) { renderChrome(); if (window.kcWarm) window.kcWarm(); return; }
     render(); window.scrollTo({ top: same || view === 'ask' ? 0 : scrollMem[view] || 0 });
   }
 
@@ -401,7 +401,7 @@
   function htmlFor(v) { const cur = ui.view; ui.view = v; try { return viewHTML(); } finally { ui.view = cur; } }
   function render() {
     if (pagerFinish) pagerFinish();
-    renderChrome();
+    renderChrome(); if (window.kcWarm) window.kcWarm();
     const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null, keepAsk = ae && ae.id === 'ask-in';
     const el = $('#view');
     el.innerHTML = viewHTML();
@@ -1442,6 +1442,26 @@
   }
   // The pager. While your finger moves, the next screen is already drawn and slides in beside the current one,
   // the way the Claude app does it. Nothing is redrawn and nothing goes blank when you let go.
+  // Screens beside the current one are prepared while the phone is idle, so a swipe never waits to build them.
+  // A prepared screen is reused only while the data, filters and searches are unchanged.
+  const warmCache = {};
+  const warmKey = () => dataRev + '|' + isoDay() + '|' + JSON.stringify([ui.filter, ui.query, ui.level, ui.elig]);
+  function htmlForWarm(v) { const k = warmKey(), c = warmCache[v]; if (c && c.k === k) return c.html; const html = htmlFor(v); warmCache[v] = { k, html }; return html; }
+  let warmTimer = 0;
+  function warmNeighbors() {
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(() => {
+      const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1));
+      idle(() => {
+        if (!matchMedia('(max-width: 899px)').matches || ui.view === 'ask') return;
+        const i = SWIPE_ORDER.indexOf(ui.view), next = [];
+        if (i >= 0) { if (i > 0) next.push(SWIPE_ORDER[i - 1]); if (i < SWIPE_ORDER.length - 1) next.push(SWIPE_ORDER[i + 1]); }
+        const back = navStack[navStack.length - 1]; if (back && back !== 'ask') next.push(back);
+        next.forEach((v) => { try { htmlForWarm(v); } catch (_) { /* drawn fresh at swipe time instead */ } });
+      }, { timeout: 1500 });
+    }, 250);
+  }
+  window.kcWarm = warmNeighbors;
   const view = $('#view'); let g = null;
   const EASE = 'cubic-bezier(.22,.8,.26,1)';
   const resetView = () => { view.style.transition = ''; view.style.transform = ''; view.style.opacity = ''; view.style.willChange = ''; };
@@ -1450,7 +1470,7 @@
   function buildPeek(target, dir) {
     const layer = document.createElement('div'); layer.className = 'peek';
     const inner = document.createElement('section'); inner.className = 'view';
-    inner.innerHTML = htmlFor(target.view); layer.appendChild(inner); view.parentNode.appendChild(layer);
+    inner.innerHTML = htmlForWarm(target.view); layer.appendChild(inner); view.parentNode.appendChild(layer);
     const top = viewTop(), maxScroll = Math.max(0, top + inner.offsetHeight - innerHeight);
     const scroll = Math.min(scrollMem[target.view] || 0, maxScroll);
     const pk = { layer, inner, target, dir, rev: dataRev, scroll, y: top - scroll };

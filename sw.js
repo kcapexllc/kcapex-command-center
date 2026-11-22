@@ -1,7 +1,7 @@
 // Offline cache for the app shell. Bump VERSION when you change files.
-const VERSION = 'kcapex-cc-v6';
+const VERSION = 'kcapex-cc-v7';
 const ASSETS = ['./', './index.html', './claude-shim.js', './app.js', './styles.css', './manifest.webmanifest',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+  './icons/kc-logo-192.png', './icons/kc-logo-512.png', './icons/kc-apple-touch-180.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS).catch(() => {})).then(() => self.skipWaiting()));

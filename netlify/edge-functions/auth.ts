@@ -20,24 +20,25 @@ function safeEqual(a: string, b: string): boolean {
 const loginPage = (error = false) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0b1220" /><title>KCapex — Sign in</title>
+<meta name="theme-color" content="#2e1065" /><link rel="apple-touch-icon" href="/icons/kc-apple-touch-180.png" /><link rel="icon" href="/icons/kc-logo-192.png" /><title>KCApex: Sign in</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1220; color: #e6edf7;
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #1a0b30; color: #e6edf7;
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; box-sizing: border-box; }
-  form { width: 100%; max-width: 360px; background: #131f36; border: 1px solid #22355a; border-radius: 18px; padding: 28px 22px; }
+  form { width: 100%; max-width: 360px; background: #24113f; border: 1px solid #3b1d66; border-radius: 18px; padding: 28px 22px; }
   h1 { font-size: 20px; margin: 0 0 4px; } p { color: #8ea0bd; margin: 0 0 20px; font-size: 14px; }
   input { width: 100%; box-sizing: border-box; padding: 13px 14px; border-radius: 12px; border: 1px solid #22355a;
     background: #0f1a2e; color: inherit; font: inherit; outline: none; }
   input:focus { border-color: #4c8dff; }
-  button { width: 100%; margin-top: 14px; padding: 13px; border: 0; border-radius: 12px; background: #f5b301;
-    color: #1a1300; font: inherit; font-weight: 700; cursor: pointer; }
+  button { width: 100%; margin-top: 14px; padding: 13px; border: 0; border-radius: 12px; background: #c026d3;
+    color: #ffffff; font: inherit; font-weight: 700; cursor: pointer; }
   .err { color: #ff5d5d; font-size: 14px; margin: 10px 0 0; }
+  .logo { display: block; border-radius: 16px; margin-bottom: 14px; }
   .mark { width: 48px; height: 48px; border-radius: 12px; background: #0f1a2e; border: 1px solid #22355a;
     display: grid; place-items: center; font-weight: 800; color: #f5b301; margin-bottom: 14px; }
 </style></head>
 <body><form method="post" action="/__login">
-  <div class="mark">KC</div>
+  <img class="logo" src="/icons/kc-logo-192.png" alt="KCApex" width="72" height="72" />
   <h1>KCapex Command Center</h1><p>Internal access only.</p>
   <input type="password" name="password" placeholder="Password" autocomplete="current-password" autofocus required />
   ${error ? '<div class="err">Incorrect password. Try again.</div>' : ""}
@@ -90,4 +91,5 @@ export default async (req: Request, context: Context) => {
   return html(loginPage(false), 401);
 };
 
-export const config: Config = { path: "/*" };
+// Icons and the manifest stay public so phones can fetch the home-screen icon before sign-in.
+export const config: Config = { path: "/*", excludedPath: ["/icons/*", "/manifest.webmanifest"] };

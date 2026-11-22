@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-11';
+  const APP_VERSION = '2026.11.23-12';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -901,7 +901,7 @@
   let liveRaf = 0;
   // Smooth reveal, like the Claude app: text arrives in bursts from the server, but the screen eases it in a
   // few characters per frame, catching up faster when it falls behind.
-  let shownLen = 0;
+  let shownLen = 0, revealFrame = 0;
   function paintLive() { if (!liveRaf) liveRaf = requestAnimationFrame(revealStep); }
   function revealStep() {
     liveRaf = 0;
@@ -911,7 +911,9 @@
     const target = m.text || '', back = target.length - shownLen;
     shownLen = back > 0 ? Math.min(target.length, shownLen + Math.max(2, Math.ceil(back / 8))) : target.length;
     const c = $('#chat'); const atBottom = c && c.scrollHeight - c.scrollTop - c.clientHeight < 90;
-    el.querySelector('.mbody').innerHTML = md(target.slice(0, shownLen));
+    // Long answers: redraw every other frame so the phone isn't re-laying out a big message 60 times a second.
+    revealFrame = (revealFrame + 1) % 2;
+    if (target.length < 4000 || revealFrame === 0 || shownLen >= target.length) el.querySelector('.mbody').innerHTML = md(target.slice(0, shownLen));
     const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
     const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';

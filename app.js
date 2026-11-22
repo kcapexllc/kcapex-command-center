@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-8';
+  const APP_VERSION = '2026.11.22-9';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -714,9 +714,9 @@
       <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="icon-btn attach" data-action="chat-attach" aria-label="Attach a PDF or photo" title="Attach a PDF or photo">📎</button>
-        <textarea id="ask-in" placeholder="Message Claude…" rows="1">${esc(chatDraft)}</textarea>
+        <textarea id="ask-in" placeholder="Message Claude, or paste a screenshot or PDF…" rows="1">${esc(chatDraft)}</textarea>
         ${chatBusy ? '<button class="btn" data-action="chat-stop">Stop</button>' : '<button class="btn primary" data-action="ask" id="ask-btn" aria-label="Send">Send</button>'}</div>
-        <input type="file" id="chat-file" accept="application/pdf,image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+        <input type="file" id="chat-file" accept="application/pdf,image/*" multiple hidden />
         <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
   }
 
@@ -1011,6 +1011,18 @@
     else if (a === 'export') exportData();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.card[data-open]')) e.target.click(); });
+  // Paste a screenshot, photo or PDF straight into the message box (or drop files on the chat on a computer).
+  document.addEventListener('paste', (e) => {
+    if (e.target.id !== 'ask-in' && e.target.id !== 'ask-home') return;
+    const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault(); if (ui.view !== 'ask') go('ask'); readFiles(files);
+  });
+  document.addEventListener('dragover', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && [...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); w.classList.add('drop'); } });
+  document.addEventListener('dragleave', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && !w.contains(e.relatedTarget)) w.classList.remove('drop'); });
+  document.addEventListener('drop', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (!w) return; e.preventDefault(); w.classList.remove('drop'); if (e.dataTransfer.files.length) readFiles([...e.dataTransfer.files]); });
+  document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' && matchMedia('(max-width: 899px)').matches) document.body.classList.add('typing'); });
+  document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') document.body.classList.remove('typing'); });
   document.addEventListener('change', (e) => { if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));

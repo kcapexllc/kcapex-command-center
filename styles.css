@@ -380,3 +380,11 @@ h3.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; colo
 html, body { overflow-x: clip; }
 .main { min-width: 0; overflow-x: clip; }
 .chat-hello .chips { flex-wrap: wrap; }
+
+/* iPhone zooms the whole page into any text box under 16px; keep every field at 16px on phones. */
+@media (max-width: 899px) { input, textarea, select { font-size: 16px !important; } }
+/* Long suggestion chips wrap instead of running off the screen. */
+.chat-hello .chip { white-space: normal; text-align: center; max-width: 100%; }
+/* Hide the tab bar while typing a message so the keyboard has room. */
+body.typing .tabbar { display: none; }
+.chatwrap.drop { outline: 2px dashed var(--blue); outline-offset: 4px; border-radius: 14px; }

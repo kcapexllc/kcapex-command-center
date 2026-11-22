@@ -433,3 +433,43 @@ body.kc-typing .tabbar { display: none; }
 .view.slide-l { animation: kcSlideL .22s ease-out; }
 .view.slide-r { animation: kcSlideR .22s ease-out; }
 @media (prefers-reduced-motion: reduce) { .view.slide-l, .view.slide-r { animation: none; } }
+
+/* ---------- Claude-like feel ---------- */
+* { -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body { overscroll-behavior-y: none; }
+button, .card, .tile, .chip, .kpi { touch-action: manipulation; }
+button:active, .tile:active, .card:active, .chip:active { transform: scale(.975); transition: transform .08s; }
+@keyframes kcFade { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.view.fade-in { animation: kcFade .16s ease-out; }
+@media (prefers-reduced-motion: reduce) { .view.fade-in { animation: none; } button:active { transform: none; } }
+
+/* Menu button + slide-out drawer (phones) */
+.menu-btn { display: none; background: transparent; border-color: transparent; color: #fff; margin-right: 2px; }
+@media (max-width: 899px) { .menu-btn { display: grid; } .topbar-logo { display: none; } }
+.drawer { position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; width: min(84vw, 330px); background: var(--panel); border-right: 1px solid var(--line);
+  transform: translateX(-102%); transition: transform .26s cubic-bezier(.2,.8,.2,1); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(14px + var(--safe-t)) 12px calc(18px + var(--safe-b)); display: flex; flex-direction: column; gap: 2px; box-shadow: 8px 0 30px var(--shadow); }
+.drawer-back { position: fixed; inset: 0; z-index: 29; background: rgba(10, 4, 20, .38); opacity: 0; transition: opacity .26s; }
+body.dr-open .drawer { transform: none; }
+body.dr-open .drawer-back { opacity: 1; }
+.dr-head { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; font-size: 18px; }
+.dr-head img { border-radius: 8px; }
+.dr-new { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 12px; padding: 12px; margin-bottom: 6px; font: inherit; font-weight: 700; font-size: 15px; color: #fff; background: linear-gradient(135deg, #a21caf, #5b21b6); cursor: pointer; }
+.dr-new svg, .dr-item svg { width: 20px; height: 20px; flex: none; }
+.dr-item { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: none; border-radius: 10px; padding: 10px 10px; font: inherit; font-size: 15px; color: var(--text); text-align: left; cursor: pointer; }
+.dr-item span { flex: 1; } .dr-item i { font-style: normal; font-size: 12px; color: var(--muted); }
+.dr-item.on { background: color-mix(in srgb, var(--blue) 12%, transparent); font-weight: 600; }
+.dr-sec { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 14px 10px 4px; }
+.dr-chat { display: block; width: 100%; border: 0; background: none; border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 14px; color: var(--text); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.dr-chat em { display: block; font-style: normal; font-size: 11.5px; color: var(--muted); }
+.dr-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.dr-foot span { font-size: 11px; color: var(--muted); padding: 0 10px; }
+
+/* Composer like the Claude app: rounded box, + to attach, round send arrow */
+.composer { border-radius: 24px; padding: 6px 6px 6px 8px; box-shadow: 0 4px 18px var(--shadow); }
+.composer .ask-row { align-items: flex-end; gap: 6px; }
+.attach-btn, .send-btn { flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+.send-btn { border: 0; background: var(--accent); color: #fff; }
+.send-btn.stop { background: var(--text); color: var(--panel); }
+.toast-btn { margin-left: 10px; border: 0; border-radius: 8px; padding: 4px 10px; font: inherit; font-weight: 700; background: #fff; color: #2e1065; }

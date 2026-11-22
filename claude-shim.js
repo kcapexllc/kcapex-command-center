@@ -47,7 +47,8 @@
     });
   }
 
-  function onAuthLost(r) { if (r.status === 401) { location.reload(); throw new Error('Signed out'); } return r; }
+  // Signed out: reload past the offline cache so the sign-in page shows.
+  function onAuthLost(r) { if (r.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); } return r; }
 
   var pulling = null;
   function pull() {

@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-5';
+  const APP_VERSION = '2026.11.23-7';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -60,7 +60,11 @@
   const LOCALRX = /\b(city|village|town|township|county|school|schools|district|park|college|university|library|municipal|cps|board of education|forest preserve)\b/i;
   const levelOf = (x) => { if (x.level) return x.level; if (x.src === 'Federal') return 'federal'; const j = String(x.jur || x.setAside || '').toLowerCase(); if (/^(local|education)/.test(j)) return 'local'; if (/^state/.test(j)) return 'state'; return LOCALRX.test(x.agency || '') ? 'local' : 'state'; };
   const blockedPlace = (p) => { const s = String(p || '').trim().toUpperCase(); if (!s) return false; if (/CALIFORNIA/.test(s)) return true; return s.split(',').pop().trim() === 'CA'; };
-  const etDay = (iso) => { if (!iso) return ''; const s = String(iso); if (s.length <= 10) return s; const d = new Date(s); if (isNaN(d)) return s.slice(0, 10); try { return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (_) { return s.slice(0, 10); } };
+  // Eastern-time calendar day. The formatter is built once and results are remembered: building it per call
+  // made every screen draw slow on phones.
+  const ET_FMT = (() => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }); } catch (_) { return null; } })();
+  const etMemo = new Map();
+  const etDay = (iso) => { if (!iso) return ''; const s = String(iso); if (s.length <= 10) return s; let v = etMemo.get(s); if (v !== undefined) return v; const d = new Date(s); v = isNaN(d) ? s.slice(0, 10) : ET_FMT ? ET_FMT.format(d) : d.toISOString().slice(0, 10); if (etMemo.size > 5000) etMemo.clear(); etMemo.set(s, v); return v; };
   const qtWin = (x) => { const p = etDay(x.posted), u = etDay(x.due); if (!p || !u) return null; const a = Date.parse(p + 'T00:00:00Z'), b = Date.parse(u + 'T00:00:00Z'); return isNaN(a) || isNaN(b) ? null : Math.round((b - a) / 864e5); };
   const qtAmended = (x) => { if (x.amended === true) return true; if (x.lastNotice) return etDay(x.lastNotice) !== etDay(x.posted); if (x.watch && x.watch.noticesCount != null) return Number(x.watch.noticesCount) > 1; if (/\bamend/i.test((x.rank && x.rank.why) || '')) return true; if (x.amended === false) return false; return null; };
   const QT_MIN = 3, QT_MAX = 6; // owners' rule: 3 to 6 days from posted to due
@@ -326,7 +330,15 @@
 
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
-  function go(view) { ui.view = view; try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ } render(); window.scrollTo({ top: 0 }); }
+  // Each screen remembers how far down you were, like the Claude app; a quick fade marks the change.
+  const scrollMem = {};
+  function go(view) {
+    if (view !== ui.view) scrollMem[ui.view] = window.scrollY;
+    const same = view === ui.view; ui.view = view;
+    try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
+    render(); window.scrollTo({ top: same || view === 'ask' ? 0 : scrollMem[view] || 0 });
+    if (!same) { const v = $('#view'); v.classList.remove('fade-in', 'slide-l', 'slide-r'); void v.offsetWidth; v.classList.add('fade-in'); }
+  }
 
   // ---------- Rendering ----------
   function counts() {
@@ -813,10 +825,10 @@
     return `<div class="chatwrap">${head}${listHtml}
       <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
       <div class="composer">${focus}${files}
-        <div class="ask-row"><button class="icon-btn attach" data-action="chat-attach" aria-label="Attach a PDF or photo" title="Attach a PDF or photo">📎</button>
-        <textarea id="ask-in" placeholder="Message Claude…" rows="1">${esc(chatDraft)}</textarea>
-        ${chatBusy ? '<button class="btn" data-action="chat-stop">Stop</button>' : '<button class="btn primary" data-action="ask" id="ask-btn" aria-label="Send">Send</button>'}</div>
-        <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>📎</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
+        <div class="ask-row"><button class="attach-btn" data-action="chat-attach" aria-label="Attach files" title="Attach files"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+        <textarea id="ask-in" placeholder="Reply to Claude…" rows="1" enterkeyhint="send">${esc(chatDraft)}</textarea>
+        ${chatBusy ? '<button class="send-btn stop" data-action="chat-stop" aria-label="Stop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>' : '<button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'}</div>
+        <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>＋</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
         <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
         <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
   }
@@ -842,20 +854,26 @@
 
   function scrollChat() { const c = $('#chat'); if (c) c.scrollTop = c.scrollHeight; }
   let liveRaf = 0;
-  function paintLive() {
-    cancelAnimationFrame(liveRaf);
-    liveRaf = requestAnimationFrame(() => {
-      if (ui.view !== 'ask') return;
-      const msgs = curMsgs(), m = msgs[msgs.length - 1], el = $('#live-msg');
-      if (!el || !m) return render();
-      const c = $('#chat'); const atBottom = c && c.scrollHeight - c.scrollTop - c.clientHeight < 80;
-      el.querySelector('.mbody').innerHTML = md(m.text);
-      const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
-      let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
-      const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
-      if (atBottom) scrollChat();
-    });
+  // Smooth reveal, like the Claude app: text arrives in bursts from the server, but the screen eases it in a
+  // few characters per frame, catching up faster when it falls behind.
+  let shownLen = 0;
+  function paintLive() { if (!liveRaf) liveRaf = requestAnimationFrame(revealStep); }
+  function revealStep() {
+    liveRaf = 0;
+    if (ui.view !== 'ask') return;
+    const msgs = curMsgs(), m = msgs[msgs.length - 1], el = $('#live-msg');
+    if (!el || !m) return render();
+    const target = m.text || '', back = target.length - shownLen;
+    shownLen = back > 0 ? Math.min(target.length, shownLen + Math.max(2, Math.ceil(back / 8))) : target.length;
+    const c = $('#chat'); const atBottom = c && c.scrollHeight - c.scrollTop - c.clientHeight < 90;
+    el.querySelector('.mbody').innerHTML = md(target.slice(0, shownLen));
+    const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
+    let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
+    const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
+    if (atBottom) scrollChat();
+    if (shownLen < target.length) liveRaf = requestAnimationFrame(revealStep);
   }
+  const revealDone = (reply) => new Promise((res) => { const t0 = Date.now(); (function wait() { if (shownLen >= (reply.text || '').length || Date.now() - t0 > 2500 || ui.view !== 'ask') return res(); paintLive(); setTimeout(wait, 50); })(); });
 
   async function saveChat(msgs) {
     if (!chatId) return;
@@ -952,7 +970,7 @@
       onPiece && onPiece(i, total);
       const r = await fetch('/api/upload', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ id, index: i, total, name: a.name, type: a.type, pages: a.pages, note: a.note, data: payload.slice(i * PIECE, (i + 1) * PIECE) }) });
-      if (r.status === 401) { location.reload(); throw new Error('Signed out'); }
+      if (r.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
       const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Upload failed (error ${r.status}).`);
       id = j.id;
     }
@@ -975,7 +993,7 @@
     else { userMsg = { role: 'user', text: q || 'Please look at the attached files.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }; msgs.push(userMsg); }
     const reply = { role: 'assistant', text: '', tools: [] }; msgs.push(reply);
     live.msgs = msgs; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Uploading your files…' : 'Thinking…';
-    const ctrl = new AbortController(); chatBusy = ctrl;
+    const ctrl = new AbortController(); chatBusy = ctrl; shownLen = 0;
     render(); scrollChat();
     let wrote = false;
     try {
@@ -991,29 +1009,68 @@
         userMsg.fileRefs = refs; chatStatus = 'Reading your files…'; paintLive();
       }
       const send = msgs.slice(0, -1).map((m) => ({ role: m.role, text: m.text, fileNames: m.fileNames, fileRefs: m.fileRefs }));
-      // Claude runs in the background on the server (no 30-second limit) and the app checks progress about
-      // once a second, so long answers and big solicitation packages come through in full.
-      const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-      const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: send, snapshot: snapshot(), project: projPayload(curProjectId()) }) });
-      if (st.status === 401) { location.reload(); return; }
-      if (!st.ok) throw new Error(`Claude could not start (error ${st.status}).`);
-      const sleep = (ms) => new Promise((res, rej) => { const t = setTimeout(res, ms); ctrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(Object.assign(new Error('Stopped'), { name: 'AbortError' })); }, { once: true }); });
-      let lastChange = Date.now(), lastUpdated = 0, misses = 0;
-      for (;;) {
-        await sleep(900);
-        let j;
-        try { const r = await fetch('/api/job?id=' + jobId, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal }); if (r.status === 401) { location.reload(); return; } j = await r.json(); misses = 0; }
-        catch (e) { if (e.name === 'AbortError') throw e; if (++misses > 20) throw new Error('Lost touch with Claude. Check your connection.'); continue; }
-        if (j.pending) { if (Date.now() - lastChange > 60000) throw new Error('Claude did not start. Try again.'); continue; }
-        if (j.updated !== lastUpdated) { lastUpdated = j.updated; lastChange = Date.now(); }
-        else if (Date.now() - lastChange > 120000) throw new Error('Claude stopped responding. Try again.');
-        reply.text = j.text || ''; reply.tools = j.tools || [];
-        if (reply.tools.some((t) => t.write)) wrote = true;
-        chatStatus = reply.text ? 'Writing…' : (j.status || 'Thinking…');
-        if (j.error) reply.error = j.error;
+      const project = projPayload(curProjectId());
+      const apply = (ev, cont) => {
+        if (ev.t === 'text') { reply.text += ev.d; chatStatus = 'Writing…'; }
+        else if (ev.t === 'status') { if (!reply.text) chatStatus = ev.d; }
+        else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; }
+        else if (ev.t === 'error') reply.error = ev.d;
         paintLive();
-        if (j.done) break;
+      };
+      const sleep = (ms) => new Promise((res, rej) => { const t = setTimeout(res, ms); ctrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(Object.assign(new Error('Stopped'), { name: 'AbortError' })); }, { once: true }); });
+      // Fast path: stream the answer live, word by word (most questions finish well inside the ~25 s a request may run).
+      async function stream(msgsToSend) {
+        const r = await fetch('/api/chat', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: msgsToSend, snapshot: snapshot(), project }) });
+        if (r.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
+        if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `Claude could not answer (error ${r.status}).`); }
+        const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', done = false, more = false;
+        while (!done) {
+          const { value, done: end } = await rd.read(); if (end) break;
+          buf += dec.decode(value, { stream: true }); let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl); buf = buf.slice(nl + 1); if (!line.trim()) continue;
+            let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
+            if (ev.t === 'cont') more = true; else if (ev.t === 'done') done = true; else apply(ev);
+          }
+        }
+        return { done, more };
       }
+      // Long path: run in the background (no time limit) and check progress twice a second.
+      async function background(msgsToSend, keepText) {
+        const base = keepText ? reply.text : '', baseTools = keepText ? [...reply.tools] : [];
+        const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: msgsToSend, snapshot: snapshot(), project }) });
+        if (st.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
+        if (!st.ok) throw new Error(`Claude could not start (error ${st.status}).`);
+        let lastChange = Date.now(), lastUpdated = 0, misses = 0;
+        for (;;) {
+          await sleep(450);
+          let j;
+          try { const r = await fetch('/api/job?id=' + jobId, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal }); if (r.status === 401) { location.replace('/?fresh=' + Date.now()); return; } j = await r.json(); misses = 0; }
+          catch (e) { if (e.name === 'AbortError') throw e; if (++misses > 40) throw new Error('Lost touch with Claude. Check your connection.'); continue; }
+          if (j.pending) { if (Date.now() - lastChange > 60000) throw new Error('Claude did not start. Try again.'); continue; }
+          if (j.updated !== lastUpdated) { lastUpdated = j.updated; lastChange = Date.now(); }
+          else if (Date.now() - lastChange > 120000) throw new Error('Claude stopped responding. Try again.');
+          reply.text = base + (j.text || ''); reply.tools = [...baseTools, ...(j.tools || [])];
+          if (reply.tools.some((t) => t.write)) wrote = true;
+          chatStatus = j.text ? 'Writing…' : (j.status || 'Thinking…');
+          if (j.error) reply.error = j.error;
+          paintLive();
+          if (j.done) return;
+        }
+      }
+      const heavy = send.some((m) => (m.fileRefs || []).length) || (project && project.fileRefs.length);
+      if (heavy) await background(send);
+      else {
+        const r1 = await stream(send);
+        if (r1.more && !reply.error) {
+          // Ran past the time limit: carry on in the background from where it stopped.
+          chatStatus = 'Still working…'; paintLive();
+          if (reply.text) await background([...send, { role: 'assistant', text: reply.text }, { role: 'user', text: '[continue]' }], true);
+          else { reply.tools = []; await background(send); }
+        } else if (!r1.done && !reply.error) reply.error = 'The answer was cut off. Ask Claude to continue.';
+      }
+      await revealDone(reply);
     } catch (e) {
       reply.error = e.name === 'AbortError' ? 'Stopped.' : (e.message && !/fetch|network/i.test(e.message) ? e.message : 'Could not reach Claude. Check your connection.');
     }
@@ -1221,7 +1278,7 @@
       const { notes, ...rest } = o; chatId = null; projView = null; chatProject = folderId(editing.id); askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
       askClaude(`Tell me about bid ${o.sol || ''} ${o.title || ''}: where it stands, what it still needs before it goes in, the risks, and the next step.`);
     }
-    else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); } catch (_) { /* ignore */ } location.reload(); }
+    else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); for (const k of await caches.keys()) await caches.delete(k); } catch (_) { /* ignore */ } location.replace('/?fresh=' + Date.now() + location.hash); }
     else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
     else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
     else if (a === 'dismiss') { const x = data.inbox[t.dataset.id]; if (x && await saveDoc('inbox', t.dataset.id, { ...x, state: 'dismissed' })) toast('Dismissed'); }
@@ -1264,6 +1321,50 @@
   let toastTimer;
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200); }
 
+  // ---------- Side menu (like the Claude app) ----------
+  // ☰ or a swipe in from the left edge opens it: new chat, bid folders, recent chats and every screen.
+  const drawer = $('#drawer'), drawerBack = $('#drawer-back');
+  function renderDrawer() {
+    const n = counts();
+    const item = (id, label, ic, count) => `<button class="dr-item ${ui.view === id && !(id === 'ask' && projView) ? 'on' : ''}" data-dr-go="${id}">${icon(ic)}<span>${esc(label)}</span>${count ? `<i>${count}</i>` : ''}</button>`;
+    const recents = Object.entries(data.chats || {}).map(([id, c]) => ({ id, ...c })).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))).slice(0, 8);
+    drawer.innerHTML = `<div class="dr-head"><img src="icons/kc-logo-192.png" alt="" width="30" height="30" /><b>KCAPEX</b></div>
+      <button class="dr-new" data-dr-act="new-chat">${icon('ask')}<span>New chat</span></button>
+      <button class="dr-item" data-dr-act="folders">${icon('folder')}<span>Bid folders</span><i>${folderList().filter((f) => !f.closed).length || ''}</i></button>
+      <div class="dr-sec">Command center</div>
+      ${TABS.map((t) => item(t.id, t.id === 'dashboard' ? 'Home' : t.label, t.icon, t.id === 'dashboard' ? 0 : n[t.id])).join('')}
+      ${item('more', 'Opportunities', 'new', n.new)}
+      <div class="dr-sec">More</div>
+      ${EXTRA.filter((x) => x.id !== 'ask').map((x) => item(x.id, x.label, x.icon, n[x.id])).join('')}
+      ${recents.length ? `<div class="dr-sec">Recent chats</div>${recents.map((c) => `<button class="dr-chat" data-dr-chat="${esc(c.id)}">${esc(c.title || 'Untitled')}<em>${c.projectId && folder(c.projectId) ? '📁 ' + esc(folder(c.projectId).num ? '#' + folder(c.projectId).num : 'Bid') + ' · ' : ''}${esc(ago(c.updatedAt))}</em></button>`).join('')}` : ''}
+      <div class="dr-foot"><button class="dr-item" data-dr-go="more">${icon('settings')}<span>Settings and sync</span></button><span>Version ${APP_VERSION}</span></div>`;
+  }
+  function openDrawer() { renderDrawer(); drawerBack.hidden = false; requestAnimationFrame(() => { document.body.classList.add('dr-open'); }); drawer.setAttribute('aria-hidden', 'false'); }
+  function closeDrawer() { document.body.classList.remove('dr-open'); drawer.setAttribute('aria-hidden', 'true'); setTimeout(() => { if (!document.body.classList.contains('dr-open')) drawerBack.hidden = true; }, 260); }
+  $('#menu-btn').addEventListener('click', openDrawer);
+  drawerBack.addEventListener('click', closeDrawer);
+  drawer.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-dr-go]'), c = e.target.closest('[data-dr-chat]'), a = e.target.closest('[data-dr-act]');
+    if (!g && !c && !a) return;
+    closeDrawer();
+    if (g) { projView = null; go(g.dataset.drGo); }
+    else if (c) { chatId = c.dataset.drChat; chatProject = (data.chats[chatId] || {}).projectId || null; askFocus = null; showChats = false; projView = null; go('ask'); scrollChat(); }
+    else if (a.dataset.drAct === 'new-chat') { chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); setTimeout(() => { const i = $('#ask-in'); if (i) i.focus(); }, 280); }
+    else if (a.dataset.drAct === 'folders') { projView = 'list'; go('ask'); }
+  });
+  // Swipe in from the left edge to open; swipe left on the menu to close.
+  let edge = null;
+  document.addEventListener('touchstart', (e) => {
+    edge = null; if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
+    const p = e.touches[0], open = document.body.classList.contains('dr-open');
+    if (open || p.clientX <= 22) edge = { x: p.clientX, y: p.clientY, open };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!edge) return; const p = e.changedTouches[0], dx = p.clientX - edge.x, dy = p.clientY - edge.y, was = edge; edge = null;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (!was.open && dx > 0) openDrawer(); else if (was.open && dx < 0) closeDrawer();
+  }, { passive: true });
+
   // ---------- Swipe between tabs (phones) ----------
   // Swipe left for the next tab, right for the previous one, in the order of the bottom bar.
   const SWIPE_ORDER = ['dashboard', 'more', 'leads', 'bids', 'jobs', 'contracts', 'messages'];
@@ -1277,7 +1378,7 @@
   }
   document.addEventListener('touchstart', (e) => {
     sw = null;
-    if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
+    if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !matchMedia('(max-width: 899px)').matches) return;
     const t = e.target; if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .chatwrap, .projwrap') || scrollsSideways(t)) return;
     if (tabIndex(ui.view) < 0) return;
     const p = e.touches[0]; if (p.clientX < 16 || p.clientX > innerWidth - 16) return; // leave the screen edges to iPhone
@@ -1310,5 +1411,15 @@
     if (e.target.id === 'ask-in' && matchMedia('(pointer: coarse)').matches) return; // on phones Enter is a new line; tap Send
     e.preventDefault(); if (e.target.id === 'ask-home') { chatId = null; askFocus = null; } askClaude();
   });
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then((reg) => { setInterval(() => reg.update().catch(() => {}), 30 * 60000); }).catch(() => {}));
+    // A new version finished installing in the background: offer it (one tap) instead of waiting for the next launch.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      const t = $('#toast'); t.innerHTML = 'Update ready. <button class="toast-btn" type="button">Refresh</button>'; t.hidden = false; clearTimeout(toastTimer);
+      t.querySelector('button').onclick = () => location.reload();
+    });
+  }
+  if (location.search.includes('fresh=')) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ } }
 })();

@@ -14,7 +14,7 @@ export default async (req) => {
   const state = { text: "", tools: [], status: "Thinking…", error: "", done: false, updated: Date.now() };
   let timer = null, writing = Promise.resolve();
   const flush = () => { timer = null; state.updated = Date.now(); const snap = JSON.stringify(state); writing = writing.then(() => jobs.set(id, snap)).catch(() => {}); return writing; };
-  const later = () => { if (!timer) timer = setTimeout(flush, 500); };
+  const later = () => { if (!timer) timer = setTimeout(flush, 250); };
   await flush();
   await runChat(body, (ev) => {
     if (ev.t === "text") state.text += ev.d;

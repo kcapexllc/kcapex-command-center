@@ -35,6 +35,9 @@
     <main class="main">
       <header class="topbar">
         <div class="topbar-title">
+          <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu" title="Menu">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h11M4 17h16"/></svg>
+          </button>
           <img class="topbar-logo" src="icons/kc-logo-192.png" alt="" width="28" height="28" />
           <h1 id="view-title">Command Center</h1>
         </div>
@@ -52,6 +55,9 @@
       <section id="view" class="view" aria-live="polite"></section>
     </main>
   </div>
+
+  <div class="drawer-back" id="drawer-back" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Menu" aria-hidden="true"></aside>
 
   <nav class="tabbar" id="tabbar" aria-label="Main navigation"></nav>
   <button class="fab" id="fab" aria-label="Add new" hidden>

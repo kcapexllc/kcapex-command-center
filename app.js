@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-15';
+  const APP_VERSION = '2026.11.23-16';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -50,8 +50,10 @@
   async function saveDoc(c, id, body) {
     if (!db) { toast('Not connected yet. Try again in a moment.'); return false; }
     body.updatedAt = new Date().toISOString(); if (!body.createdAt) body.createdAt = body.updatedAt;
-    try { await db.doc(c + '/' + id).set(body); return true; }
-    catch (e) { toast('Save failed: ' + (e.message || 'network error')); return false; }
+    // Instant: the screen updates right away and the save finishes in the background. If it fails, the change is
+    // undone on screen and you're told.
+    db.doc(c + '/' + id).set(body).catch((e) => toast('Couldn’t save that change: ' + (e.message || 'network error') + '. It was undone.'));
+    return true;
   }
   // The Pipeline marks records deleted rather than erasing them, so the sync can carry deletes across.
   const removeDoc = (c, id) => saveDoc(c, id, { ...data[c][id], deleted: true });
@@ -1350,6 +1352,10 @@
   document.addEventListener('dragover', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && [...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); w.classList.add('drop'); } });
   document.addEventListener('dragleave', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && !w.contains(e.relatedTarget)) w.classList.remove('drop'); });
   document.addEventListener('drop', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (!w) return; e.preventDefault(); w.classList.remove('drop'); if (e.dataTransfer.files.length) readFiles([...e.dataTransfer.files]); });
+  // Wake Claude's server function while you're still typing, so your first question doesn't wait for it to start.
+  let warmedAt = 0;
+  const warmClaude = () => { if (Date.now() - warmedAt < 120000) return; warmedAt = Date.now(); fetch('/api/chat', { method: 'GET', credentials: 'same-origin', cache: 'no-store' }).catch(() => {}); };
+  document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' || e.target.id === 'ask-home') warmClaude(); });
   document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' && matchMedia('(max-width: 899px)').matches) document.body.classList.add('kc-typing'); });
   // Wait a moment before the tab bar comes back, so a tap on Send isn't caught by the bar sliding in.
   document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('kc-typing'); }, 350); });

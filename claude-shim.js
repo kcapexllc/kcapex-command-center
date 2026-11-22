@@ -64,7 +64,8 @@
       .then(function (j) {
         window.kcMeta = { lastSync: j.lastSync || null, pulledAt: new Date().toISOString() };
         try { window.dispatchEvent(new Event('kc-meta')); } catch (e) { /* ignore */ }
-        var stale = COLLS.filter(function (c) { return !loaded || (j.revs || {})[c] !== revs[c]; });
+        // Skip a collection while one of our own saves to it is still on its way, so a refresh can't undo it on screen.
+        var stale = COLLS.filter(function (c) { return !pending[c] && (!loaded || (j.revs || {})[c] !== revs[c]); });
         if (!stale.length) return;
         return fetch('/api/db?c=' + stale.join(','), { credentials: 'same-origin', cache: 'no-store' })
           .then(onAuthLost).then(function (r) { return r.json(); })
@@ -81,8 +82,10 @@
   }
 
   // Writes go out one at a time so two edits to the same collection never race.
-  var queue = Promise.resolve();
+  var queue = Promise.resolve(), pending = {};
   function write(op) {
+    var wc = op.path.split('/')[0]; pending[wc] = (pending[wc] || 0) + 1;
+    var done = function () { pending[wc]--; };
     var run = function () {
       return fetch('/api/db', {
         method: 'POST', credentials: 'same-origin',
@@ -96,10 +99,12 @@
       });
     };
     var p = queue.then(run, run);
+    p.then(done, done);
     queue = p.catch(function () {});
     return p;
   }
 
+  function prevOf(path) { var parts = path.split('/'), m = cache[parts[0]] || {}; return m[parts[1]] === undefined ? undefined : JSON.parse(JSON.stringify(m[parts[1]])); }
   function apply(path, body) {
     var parts = path.split('/'), c = parts[0], id = parts[1];
     cache[c] = cache[c] || {};
@@ -120,12 +125,17 @@
     },
     doc: function (path) {
       return {
+        // Changes show on screen at once and are sent to the server behind the scenes, in order.
+        // If the server refuses one, the screen goes back to what was there before.
         set: function (body) {
-          var clean = JSON.parse(JSON.stringify(body));
-          return write({ op: 'set', path: path, body: clean }).then(function () { apply(path, clean); });
+          var clean = JSON.parse(JSON.stringify(body)), prev = prevOf(path);
+          apply(path, clean);
+          return write({ op: 'set', path: path, body: clean }).catch(function (e) { apply(path, prev); throw e; });
         },
         delete: function () {
-          return write({ op: 'delete', path: path }).then(function () { apply(path, undefined); });
+          var prev = prevOf(path);
+          apply(path, undefined);
+          return write({ op: 'delete', path: path }).catch(function (e) { apply(path, prev); throw e; });
         },
         get: function () { return pull().then(function () { return docSnap(path); }); },
         onSnapshot: function (cb, err) {

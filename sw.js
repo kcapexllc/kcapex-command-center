@@ -1,7 +1,7 @@
 // Offline cache for the app shell. Bump VERSION when you change files.
 // Speed: the app opens instantly from this cache, and each file is refreshed in the background for next time.
-// The page itself (index.html) tries the network for up to 1.2 s first, so sign-in and new versions still show up.
-const VERSION = 'kcapex-cc-v29';
+// The page itself opens from the cache too; new versions arrive in the background and the app offers a Refresh.
+const VERSION = 'kcapex-cc-v30';
 const ASSETS = ['./', './index.html', './claude-shim.js', './app.js', './styles.css', './manifest.webmanifest',
   './icons/kc-logo-192.png', './icons/kc-logo-512.png', './icons/kc-apple-touch-180.png'];
 
@@ -19,10 +19,10 @@ self.addEventListener('fetch', (e) => {
   if (e.request.mode === 'navigate') {
     // After a sign-out the app reloads with ?fresh=… : always go to the network then.
     if (url.searchParams.has('fresh')) return;
+    // Open instantly from the saved copy and refresh it in the background. If you're signed out, the app's first
+    // data request fails and it reloads with ?fresh, which goes to the network and shows the sign-in page.
     const net = fetch(e.request).then((r) => save(new Request('./index.html'), r));
-    e.respondWith(Promise.race([net, new Promise((res) => setTimeout(res, 1200))])
-      .then((r) => r || caches.match('./index.html').then((c) => c || net))
-      .catch(() => caches.match('./index.html')));
+    e.respondWith(caches.match('./index.html').then((c) => { if (c) { e.waitUntil(net.catch(() => {})); return c; } return net; }).catch(() => caches.match('./index.html')));
     return;
   }
   // Files: answer from the cache right away, refresh it in the background.

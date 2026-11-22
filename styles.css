@@ -492,3 +492,7 @@ body.dr-open .drawer-back { opacity: 1; }
   .sync { display: none; }
   .topbar h1 { font-size: 18px; }
 }
+
+/* Speed: cards and messages that are off screen are not laid out or painted until you scroll to them. */
+.cards > .card, .chatwrap .msg, .pc-row, .pf-row, .dr-chat { content-visibility: auto; contain-intrinsic-size: auto 92px; }
+.chatwrap .msg { contain-intrinsic-size: auto 120px; }

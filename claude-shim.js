@@ -21,9 +21,15 @@
     if (saved && saved.cache) { cache = saved.cache; revs = saved.revs || {}; loaded = true; }
   } catch (e) { /* storage unavailable */ }
 
+  // Saving the offline copy (about 750 KB) is slow, so it waits until the phone is idle and runs at most once
+  // for a burst of changes, instead of on every change.
+  var persistTimer = null;
+  function persistNow() { persistTimer = null; try { localStorage.setItem(CACHE_KEY, JSON.stringify({ cache: cache, revs: revs })); } catch (e) { /* full or blocked */ } }
   function persist() {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ cache: cache, revs: revs })); } catch (e) { /* full or blocked */ }
+    if (persistTimer) return;
+    persistTimer = setTimeout(function () { if (window.requestIdleCallback) requestIdleCallback(persistNow, { timeout: 3000 }); else persistNow(); }, 1200);
   }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && persistTimer) { clearTimeout(persistTimer); persistNow(); } });
 
   function collSnap(c) {
     var m = cache[c] || {};

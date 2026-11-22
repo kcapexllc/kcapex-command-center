@@ -161,9 +161,28 @@ async function loadUpload(uploads, id) {
 // Turns the app's chat history into API messages. Files stay with the conversation (like the Claude app),
 // newest first, until the per-request budget runs out; older ones are then named only.
 const BIN_BUDGET = 22 * 1024 * 1024, TEXT_BUDGET = 500000, PAGE_BUDGET = 100, IMAGE_BUDGET = 40;
-async function toApiMessages(history, snapshot, uploads) {
+async function toApiMessages(history, snapshot, uploads, project) {
   let bin = 0, txt = 0, pdfPages = 0, imgs = 0, lastFileBlock = null;
   const built = [];
+  // A chat inside a project (like Claude Projects) always carries the project's files and instructions.
+  // They go first, so they win the size budget over files attached in individual messages.
+  const projBlocks = [], projSkipped = [];
+  if (project && typeof project === "object") {
+    for (const ref of (Array.isArray(project.fileRefs) ? project.fileRefs : []).slice(0, 15)) {
+      const f = uploads ? await loadUpload(uploads, ref && ref.id).catch(() => null) : null;
+      if (!f) { if (ref && ref.name) projSkipped.push(ref.name); continue; }
+      const title = String(f.name || "file").slice(0, 200); let block = null;
+      if (f.type === "text/plain") { if (txt + f.data.length <= TEXT_BUDGET) { txt += f.data.length; block = { type: "document", source: { type: "text", media_type: "text/plain", data: f.data }, title, ...(f.note ? { context: f.note } : {}) }; } }
+      else if (bin + f.data.length <= BIN_BUDGET) {
+        if (f.type === "application/pdf" && pdfPages + (f.pages || 10) <= PAGE_BUDGET) { pdfPages += f.pages || 10; bin += f.data.length; block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title }; }
+        else if (/^image\/(png|jpeg|gif|webp)$/.test(f.type) && imgs < IMAGE_BUDGET) { imgs++; bin += f.data.length; block = { type: "image", source: { type: "base64", media_type: f.type, data: f.data } }; }
+      }
+      if (block) projBlocks.push(block); else projSkipped.push(title);
+    }
+    if (projBlocks.length) projBlocks[projBlocks.length - 1].cache_control = { type: "ephemeral" };
+    const s = (v, n) => String(v || "").slice(0, n);
+    projBlocks.push({ type: "text", text: `This chat is in the project "${s(project.name, 200)}".${project.description ? ` About: ${s(project.description, 500)}.` : ""}${project.bidId ? ` Linked bid id in the app: ${s(project.bidId, 80)}.` : ""}${projBlocks.length ? " The documents above are the project's files." : ""}${projSkipped.length ? ` Not included this time (size limits): ${projSkipped.join(", ")}.` : ""}${project.instructions ? `\nProject instructions from the owners:\n${s(project.instructions, 8000)}` : ""}` });
+  }
   for (let k = history.length - 1; k >= 0; k--) {
     const m = history[k];
     if (m.role === "assistant") { if (m.text) built.unshift({ role: "assistant", content: m.text }); continue; }
@@ -199,7 +218,7 @@ async function toApiMessages(history, snapshot, uploads) {
   if (built.length) {
     const first = built[0];
     // Cached so the extra steps of one answer (searches, lookups) re-read it at a fraction of the price.
-    first.content = [{ type: "text", text: `Command center snapshot (JSON, as of now):\n${JSON.stringify(snapshot || {}).slice(0, 40000)}`, cache_control: { type: "ephemeral" } }, ...first.content];
+    first.content = [{ type: "text", text: `Command center snapshot (JSON, as of now):\n${JSON.stringify(snapshot || {}).slice(0, 40000)}`, cache_control: { type: "ephemeral" } }, ...projBlocks, ...first.content];
   }
   return built;
 }
@@ -218,8 +237,8 @@ export async function runChat(body, send, deadline = Infinity) {
     }
     const client = ownKey ? new Anthropic({ apiKey: ownKey, baseURL: "https://api.anthropic.com" }) : process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
     const store = getStore({ name: "pipeline", consistency: "strong" });
-    send({ t: "status", d: history.some((m) => (m.fileRefs || []).length) ? "Reading your files…" : "Thinking…" });
-    const messages = await toApiMessages(history, body.snapshot, getStore({ name: "uploads", consistency: "strong" }));
+    send({ t: "status", d: history.some((m) => (m.fileRefs || []).length) || (body.project && (body.project.fileRefs || []).length) ? "Reading your files…" : "Thinking…" });
+    const messages = await toApiMessages(history, body.snapshot, getStore({ name: "uploads", consistency: "strong" }), body.project);
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (deadline - Date.now() < 2500) { send({ t: "cont" }); return; }
       // Refusal fallbacks are not used here: Netlify's AI Gateway does not pass beta headers through.

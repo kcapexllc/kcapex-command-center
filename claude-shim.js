@@ -5,7 +5,7 @@
    report as unavailable, and the page hides them. */
 (function () {
   'use strict';
-  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages'];
+  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages', 'invoices'];
   var CACHE_KEY = 'kc.pipeline.cache.v1';
   var POLL_MS = 20000;
 

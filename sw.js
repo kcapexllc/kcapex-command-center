@@ -1,5 +1,5 @@
 // Offline cache for the app shell. Bump VERSION when you change files.
-const VERSION = 'kcapex-cc-v4';
+const VERSION = 'kcapex-cc-v5';
 const ASSETS = ['./', './index.html', './claude-shim.js', './app.js', './styles.css', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 

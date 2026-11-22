@@ -260,3 +260,15 @@ table.yr tr.now td { background: var(--lav); }
 @media (min-width: 640px) { .hero { grid-template-columns: 1fr 1fr; } .tiles { grid-template-columns: repeat(3, 1fr); } }
 .chip.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .nav button.active { background: var(--lav); color: var(--accent); }
+.goals { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.goal-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 14px; }
+.goal-sub { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+h3.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 6px 0 10px; }
+.xboxes { display: grid; gap: 10px; margin-top: 14px; }
+.xbox { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel-2); }
+.xbox h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+.xbox p { margin: 0 0 6px; font-size: 13.5px; }
+.xrow { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13.5px; padding: 4px 0; border-top: 1px solid var(--line); }
+.xrow:first-of-type { border-top: 0; }
+.xrow small { color: var(--muted); }
+@media (min-width: 640px) { .goals { grid-template-columns: 1fr 1fr; } }

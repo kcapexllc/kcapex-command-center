@@ -16,6 +16,8 @@
     people: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
     subs: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/>',
     library: '<path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l3.5-.9 2.8 15.4-3.5.9z"/>',
+    invoices: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3"/>',
+    intel: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
   };
   const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
@@ -33,7 +35,7 @@
   const safeUrl = (u) => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '');
 
   // ---------- Data (synced database) ----------
-  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages'];
+  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices'];
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -57,6 +59,23 @@
   const qtWin = (x) => { const p = etDay(x.posted), u = etDay(x.due); if (!p || !u) return null; const a = Date.parse(p + 'T00:00:00Z'), b = Date.parse(u + 'T00:00:00Z'); return isNaN(a) || isNaN(b) ? null : Math.round((b - a) / 864e5); };
   const qtAmended = (x) => { if (x.amended === true) return true; if (x.lastNotice) return etDay(x.lastNotice) !== etDay(x.posted); if (x.watch && x.watch.noticesCount != null) return Number(x.watch.noticesCount) > 1; if (/\bamend/i.test((x.rank && x.rank.why) || '')) return true; if (x.amended === false) return false; return null; };
   const qtOk = (x) => { const w = qtWin(x), u = etDay(x.due); if (w === null || w < 1 || !u || u < etDay(new Date().toISOString())) return false; return w <= (qtAmended(x) === true ? 9 : 8); };
+  // ---- KPI helpers ----
+  const FY_START = '2026-10-01', FY_END = '2027-09-30';
+  const GOALS = { revenue: 2000000, bids: 180, winRate: 20, wins: 36, approvalOver: 500000 };
+  const fyFrac = () => Math.min(1, Math.max(0, (parseDate(isoDay()) - parseDate(FY_START)) / 86400000 / 365));
+  const liveOpps = () => list('opportunities').filter((o) => o.status !== 'pursuing');
+  const pricingTotal = (o) => { const p = o.pricing; if (!p || !Array.isArray(p.lines)) return 0; const m = (Number(p.pct) || 0) / 100;
+    return p.lines.reduce((a, l) => { const c = Number(l.cost) || 0; return a + (p.mode === 'margin' ? (m >= 1 ? c : c / (1 - m)) : c * (1 + m)); }, 0); };
+  const oppPrice = (o) => Number(o.ourPrice) || pricingTotal(o) || Number(o.estValue) || 0;
+  const isSS = (o) => /sources sought|presol|rfi/i.test(o.noticeType || '');
+  const awards = () => list('contracts').filter((c) => c.status !== 'Cancelled');
+  const invoicedFor = (cid) => list('invoices').filter((i) => i.contractId === cid && i.status !== 'Draft');
+  const coReplies = () => liveOpps().filter((o) => o.followups && o.followups.lastReplyId && !o.followups.replyHandled);
+  const signups = () => list('subs').filter((s) => s.signup && !s.reviewed);
+  const needsApproval = (o) => ['found', 'reviewing', 'bid'].includes(o.status || 'found') && !isPastOpp(o) && oppPrice(o) > GOALS.approvalOver &&
+    !(Array.isArray(o.notes) && o.notes.some((n) => /approved/i.test((n && n.text) || '')));
+  const quoteSummary = (o) => { const q = Object.values(o.quotes || {}); if (!q.length) return ''; const got = q.filter((x) => x.status === 'received').length, out = q.filter((x) => x.status === 'requested').length;
+    return [got ? got + ' in' : '', out ? out + ' out' : ''].filter(Boolean).join(', ') || q.length + ' closed'; };
   const isPastOpp = (o) => { const st = o.status || 'found'; if (!['found', 'reviewing', 'bid'].includes(st)) return true; const n = daysUntil(o.due); return n !== null && n < 0; };
   const newItems = () => list('inbox').filter((x) => x.state === 'new' && !blockedPlace(x.place));
   const quickItems = () => [
@@ -79,7 +98,7 @@
   const opt = (arr) => arr;
   const COLLECTIONS = {
     bids: {
-      coll: 'opportunities', label: 'Bids', singular: 'Bid', icon: 'bids', statusField: 'status', defaultFilter: 'Active',
+      coll: 'opportunities', label: 'Bids', singular: 'Bid', icon: 'bids', statusField: 'status', defaultFilter: 'Working',
       fields: [
         { key: 'title', label: 'Title', type: 'text', required: true, full: true },
         { key: 'sol', label: 'Solicitation #', type: 'text' },
@@ -101,8 +120,8 @@
       ],
       title: (r) => r.title || r.sol || 'Untitled',
       sub: (r) => [r.sol, r.agency].filter(Boolean).join(' · '),
-      value: (r) => r.ourPrice || r.estValue,
-      meta: (r) => [['Due', fmtDate(r.due)], ['Type', r.noticeType], ['Set-aside', r.setAside], ['NAICS', r.naics]],
+      value: (r) => oppPrice(r),
+      meta: (r) => [['Due', fmtDate(r.due)], ['Type', r.noticeType], ['Submit via', r.method && String(r.method).split(/[ ,]/)[0]], ['Set-aside', r.setAside], ['Quotes', quoteSummary(r)]],
       search: ['title', 'sol', 'agency', 'office', 'naics', 'place', 'setAside'],
       dateKey: 'due', notes: true,
     },
@@ -146,15 +165,34 @@
         { key: 'agency', label: 'Agency / Prime', type: 'text' },
         { key: 'number', label: 'Contract #', type: 'text' },
         { key: 'type', label: 'Type', type: 'select', options: ['FFP', 'T&M', 'Cost-Plus', 'IDIQ', 'BPA', 'Subcontract', 'Commercial'] },
-        { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Pending', 'Closed'] },
-        { key: 'value', label: 'Total value ($)', type: 'number' },
+        { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Completed', 'Pending', 'Closed', 'Cancelled'] },
+        { key: 'value', label: 'Award value ($)', type: 'number' },
+        { key: 'awardDate', label: 'Award date', type: 'date' },
         { key: 'start', label: 'PoP start', type: 'date' },
         { key: 'end', label: 'PoP end', type: 'date' },
         { key: 'notesTxt', label: 'Notes', type: 'textarea', full: true },
       ],
       title: (r) => r.title, sub: (r) => [r.agency, r.number].filter(Boolean).join(' · '), value: (r) => r.value,
-      meta: (r) => [['Type', r.type], ['PoP', [fmtDate(r.start), fmtDate(r.end)].filter(Boolean).join(' → ')]],
+      meta: (r) => { const inv = invoicedFor(r.id); const billed = inv.reduce((a, i) => a + (Number(i.amount) || 0), 0), paid = inv.filter((i) => i.status === 'Paid').reduce((a, i) => a + (Number(i.amount) || 0), 0);
+        return [['Awarded', fmtDate(r.awardDate)], ['PoP', [fmtDate(r.start), fmtDate(r.end)].filter(Boolean).join(' → ')], ['Invoiced', billed ? money(billed) : ''], ['Paid', paid ? money(paid) : '']]; },
       search: ['title', 'agency', 'number', 'notesTxt', 'type'], dateKey: 'end',
+    },
+    invoices: {
+      coll: 'invoices', label: 'Invoices', singular: 'Invoice', icon: 'invoices', statusField: 'status', newestFirst: true, dateKey: 'sent',
+      fields: [
+        { key: 'contractId', label: 'Contract', type: 'select', optionsFn: () => awards().sort((a, b) => String(a.title).localeCompare(String(b.title))).map((c) => [c.id, c.title]), full: true },
+        { key: 'number', label: 'Invoice #', type: 'text', required: true },
+        { key: 'amount', label: 'Amount ($)', type: 'number' },
+        { key: 'status', label: 'Status', type: 'select', options: ['Sent', 'Paid', 'Draft', 'Disputed'] },
+        { key: 'system', label: 'Submitted through', type: 'select', options: ['WAWF / PIEE', 'IPP', 'Email', 'Mail', 'Other'] },
+        { key: 'sent', label: 'Date sent', type: 'date' },
+        { key: 'due', label: 'Payment due', type: 'date' },
+        { key: 'paid', label: 'Date paid', type: 'date' },
+        { key: 'notesTxt', label: 'Notes', type: 'textarea', full: true },
+      ],
+      title: (r) => 'Invoice ' + (r.number || ''), sub: (r) => (data.contracts[r.contractId] || {}).title || 'No contract', value: (r) => r.amount,
+      meta: (r) => [['Sent', fmtDate(r.sent)], ['Due', fmtDate(r.due)], ['Paid', fmtDate(r.paid)], ['Via', r.system]],
+      search: ['number', 'notesTxt', 'system'],
     },
     messages: {
       coll: 'messages', label: 'Inbox', singular: 'Message', icon: 'messages', statusField: 'status',
@@ -248,8 +286,10 @@
     { id: 'people', label: 'People', icon: 'people' },
     { id: 'subs', label: 'Subs', icon: 'subs' },
     { id: 'library', label: 'Library', icon: 'library' },
+    { id: 'invoices', label: 'Invoices', icon: 'invoices' },
+    { id: 'intel', label: 'Price intel', icon: 'intel' },
   ];
-  const TITLES = { dashboard: 'GovCon Command Center', more: 'More', new: 'New opportunities', quick: 'Quick-turn bids' };
+  const TITLES = { dashboard: 'GovCon Command Center', more: 'More', new: 'New opportunities', quick: 'Quick-turn bids', intel: 'Price intel' };
 
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
@@ -258,11 +298,12 @@
   // ---------- Rendering ----------
   function counts() {
     return {
-      bids: list('opportunities').filter((o) => ACTIVE.includes(o.status || 'found') && !isPastOpp(o)).length,
-      leads: list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length,
-      jobs: list('jobs').filter((j) => j.status !== 'Complete').length,
-      contracts: list('contracts').filter((c) => c.status === 'Active').length,
-      messages: list('messages').filter((m) => m.status === 'Needs reply').length,
+      bids: liveOpps().filter((o) => ['reviewing', 'bid', 'submitted'].includes(o.status)).length,
+      leads: list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length + signups().length,
+      jobs: list('jobs').filter((j) => j.status !== 'Complete').length + awards().filter((c) => c.status === 'Active').length,
+      contracts: awards().length,
+      messages: list('messages').filter((m) => m.status === 'Needs reply').length + coReplies().length,
+      invoices: list('invoices').filter((i) => i.status === 'Sent').length,
       new: newItems().length, quick: quickItems().length,
     };
   }
@@ -285,6 +326,7 @@
       else if (ui.view === 'more') el.innerHTML = renderMore();
       else if (ui.view === 'new') el.innerHTML = renderNew();
       else if (ui.view === 'quick') el.innerHTML = renderQuick();
+      else if (ui.view === 'intel') el.innerHTML = renderIntel();
       else el.innerHTML = renderList(ui.view);
     } catch (err) { console.error(err); el.innerHTML = `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
@@ -300,56 +342,88 @@
       <p style="color:var(--muted);font-size:12.5px;margin:8px 0 0">Local is Chicago, Cook County, CPS and school and park districts. State is Illinois and Montana. April and May are the overlap crunch: federal first.</p></details></div>`;
   }
 
+  function goalRow(label, actual, target, fmt, sub) {
+    const pct = target ? actual / target : 1;
+    const st = pct >= 1 ? ['On track', 'b-green'] : pct >= 0.9 ? ['Slightly behind', 'b-orange'] : ['Behind', 'b-red'];
+    return `<div class="goal"><div class="goal-top"><b>${esc(label)}</b><span class="badge ${st[1]}">${st[0]}</span></div>
+      <div class="stage-bar"><span style="width:${Math.min(100, Math.round(pct * 100))}%;background:var(--accent)"></span></div>
+      <div class="goal-sub">${fmt(actual)} vs ${fmt(target)} target to date${sub ? ' · ' + esc(sub) : ''}</div></div>`;
+  }
+
   function renderDashboard() {
-    const opps = list('opportunities');
-    const open = opps.filter((o) => ACTIVE.includes(o.status || 'found') && !isPastOpp(o));
-    const val = (o) => Number(o.ourPrice || o.estValue) || 0;
-    const pipeline = open.reduce((a, o) => a + val(o), 0);
-    const won = opps.filter((o) => o.status === 'awarded'), lost = opps.filter((o) => o.status === 'lost');
-    const winRate = won.length + lost.length ? Math.round((won.length / (won.length + lost.length)) * 100) + '%' : '—';
-    const awarded = won.reduce((a, o) => a + val(o), 0);
-    const waiting = opps.filter((o) => isPastOpp(o) && ACTIVE.includes(o.status || 'found')).length;
-    const openLeads = list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length;
-    const needsReply = list('messages').filter((m) => m.status === 'Needs reply').length;
+    const opps = liveOpps();
+    const today = isoDay();
+    const working = opps.filter((o) => ['reviewing', 'bid'].includes(o.status) && !isPastOpp(o));
+    const submitted = opps.filter((o) => o.status === 'submitted');
+    const foundOpen = opps.filter((o) => (o.status || 'found') === 'found' && !isPastOpp(o));
+    const stale = opps.filter((o) => ['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o));
+    const pipeline = [...working, ...submitted].reduce((a, o) => a + oppPrice(o), 0);
+    const unpriced = [...working, ...submitted].filter((o) => !oppPrice(o)).length;
+    const aw = awards(), awardedTotal = aw.reduce((a, c) => a + (Number(c.value) || 0), 0);
+    const lost = opps.filter((o) => o.status === 'lost');
+    const winRate = aw.length + lost.length ? Math.round((aw.length / (aw.length + lost.length)) * 100) : null;
     const deadlines = collectDeadlines();
-    const dueWeek = deadlines.filter((d) => d.days >= 0 && d.days <= 7).length;
+    const mine = deadlines.filter((d) => d.kind !== 'Found bid due');
+    const dueWeek = mine.filter((d) => d.days >= 0 && d.days <= 7).length;
+    const foundWeek = deadlines.filter((d) => d.days >= 0 && d.days <= 7 && d.kind === 'Found bid due').length;
+    const replies = coReplies().length + list('messages').filter((m) => m.status === 'Needs reply').length;
+    const leadsN = list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length + signups().length;
     const nw = newItems(), lv = (k) => nw.filter((x) => levelOf(x) === k).length, qk = quickItems().length;
+    const approvals = opps.filter(needsApproval);
+
+    // FY27 goals (1 Oct 2026 to 30 Sep 2027), targets prorated to today.
+    const f = fyFrac();
+    const invoicedFY = list('invoices').filter((i) => i.status !== 'Draft' && dayOf(i.sent) >= FY_START && dayOf(i.sent) <= FY_END).reduce((a, i) => a + (Number(i.amount) || 0), 0);
+    const bidsFY = opps.filter((o) => ['submitted', 'awarded', 'lost'].includes(o.status) && !isSS(o) && dayOf(o.submittedOn || o.due) >= FY_START).length;
+    const winsFY = aw.filter((c) => dayOf(c.awardDate) >= FY_START).length;
+    const awardedFY = aw.filter((c) => dayOf(c.awardDate) >= FY_START).reduce((a, c) => a + (Number(c.value) || 0), 0);
+    const pctFmt = (n) => n + '%';
 
     const stages = ['found', 'reviewing', 'bid', 'submitted'];
-    const byStage = stages.map((s) => { const items = open.filter((o) => (o.status || 'found') === s); return { s, n: items.length, v: items.reduce((a, o) => a + val(o), 0) }; });
+    const byStage = stages.map((s) => { const items = s === 'found' ? foundOpen : s === 'submitted' ? submitted : working.filter((o) => o.status === s); return { s, n: items.length, v: items.reduce((a, o) => a + oppPrice(o), 0) }; });
     const maxN = Math.max(1, ...byStage.map((x) => x.n));
-    const activeJobs = list('jobs').filter((j) => j.status !== 'Complete');
+    const activeWork = aw.filter((c) => c.status === 'Active');
 
     return `
       <div class="hero">
         ${nw.length ? `<article class="card" data-go="new"><div class="card-title">${nw.length} new opportunit${nw.length === 1 ? 'y' : 'ies'} from your saved searches</div><div class="card-sub">Local ${lv('local')} · State ${lv('state')} · Federal ${lv('federal')}</div></article>` : ''}
         ${qk ? `<article class="card" data-go="quick"><div class="card-title">${qk} quick-turn bid${qk === 1 ? '' : 's'} open</div><div class="card-sub">Posted to due in 1 to 8 days · tap to see them</div></article>` : ''}
+        ${approvals.length ? `<article class="card" data-filter="bids:Needs approval" data-go2="bids" style="border-color:var(--red)"><div class="card-title">${approvals.length} bid${approvals.length === 1 ? '' : 's'} over $500K need the majority owner's approval</div><div class="card-sub">${esc(approvals.slice(0, 2).map((o) => o.sol || o.title).join(' · '))}</div></article>` : ''}
       </div>
       <div class="kpis">
-        <div class="kpi accent"><div class="kpi-label">Open pipeline</div><div class="kpi-value">${money(pipeline)}</div><div class="kpi-sub">${open.length} open bids</div></div>
-        <div class="kpi"><div class="kpi-label">Due in 7 days</div><div class="kpi-value" style="color:${dueWeek ? 'var(--red)' : 'inherit'}">${dueWeek}</div><div class="kpi-sub">deadlines & follow-ups</div></div>
-        <div class="kpi"><div class="kpi-label">Awarded</div><div class="kpi-value">${money(awarded)}</div><div class="kpi-sub">${won.length} win${won.length === 1 ? '' : 's'}</div></div>
-        <div class="kpi"><div class="kpi-label">Win rate</div><div class="kpi-value">${winRate}</div><div class="kpi-sub">${won.length} won · ${lost.length} lost</div></div>
-        <div class="kpi"><div class="kpi-label">Awaiting decision</div><div class="kpi-value">${waiting}</div><div class="kpi-sub">submitted or past due</div></div>
-        <div class="kpi"><div class="kpi-label">Needs reply</div><div class="kpi-value">${needsReply}</div><div class="kpi-sub">${openLeads} open lead${openLeads === 1 ? '' : 's'}</div></div>
+        <div class="kpi accent"><div class="kpi-label">Open pipeline</div><div class="kpi-value">${money(pipeline)}</div><div class="kpi-sub">${submitted.length} submitted · ${working.length} in progress${unpriced ? ` · ${unpriced} unpriced` : ''}</div></div>
+        <div class="kpi"><div class="kpi-label">Due in 7 days</div><div class="kpi-value" style="color:${dueWeek ? 'var(--red)' : 'inherit'}">${dueWeek}</div><div class="kpi-sub">your bids & follow-ups${foundWeek ? ` · ${foundWeek} found bids not reviewed` : ''}</div></div>
+        <div class="kpi"><div class="kpi-label">Awarded</div><div class="kpi-value">${money(awardedTotal)}</div><div class="kpi-sub">${aw.length} win${aw.length === 1 ? '' : 's'} · ${activeWork.length} active</div></div>
+        <div class="kpi"><div class="kpi-label">Win rate</div><div class="kpi-value">${winRate === null ? '—' : winRate + '%'}</div><div class="kpi-sub">${aw.length} won · ${lost.length} lost</div></div>
+        <div class="kpi"><div class="kpi-label">Awaiting decision</div><div class="kpi-value">${submitted.length}</div><div class="kpi-sub" ${stale.length ? 'data-filter="bids:Needs close-out" data-go2="bids" style="cursor:pointer"' : ''}>submitted${stale.length ? ` · <b style="color:var(--red)">${stale.length} need close-out</b>` : ''}</div></div>
+        <div class="kpi"><div class="kpi-label">Needs reply</div><div class="kpi-value" style="color:${replies ? 'var(--red)' : 'inherit'}">${replies}</div><div class="kpi-sub">${coReplies().length} CO repl${coReplies().length === 1 ? 'y' : 'ies'} · ${leadsN} lead${leadsN === 1 ? '' : 's'}</div></div>
       </div>
+      <div class="panel" style="margin-bottom:16px"><h2>FY27 goals <span style="text-transform:none;letter-spacing:0;font-size:12.5px">${Math.round(f * 100)}% of the year gone</span></h2>
+        <div class="goals">
+          ${goalRow('Revenue invoiced', invoicedFY, Math.round(GOALS.revenue * f), money, invoicedFY ? '' : 'log invoices on your contracts to track this')}
+          ${goalRow('Bids submitted', bidsFY, Math.round(GOALS.bids * f), String, '15 a month')}
+          ${goalRow('Wins', winsFY, Math.max(1, Math.round(GOALS.wins * f)), String, money(awardedFY) + ' awarded this FY')}
+          <div class="goal"><div class="goal-top"><b>Win rate</b><span class="badge ${winRate === null ? 'b-muted' : winRate >= GOALS.winRate ? 'b-green' : winRate >= 18 ? 'b-orange' : 'b-red'}">${winRate === null ? 'No data' : winRate >= GOALS.winRate ? 'On track' : 'Behind'}</span></div>
+            <div class="stage-bar"><span style="width:${Math.min(100, winRate || 0)}%;background:var(--accent)"></span></div><div class="goal-sub">${winRate === null ? '—' : pctFmt(winRate)} vs ${GOALS.winRate}% target, all time</div></div>
+        </div></div>
       ${seasonBlock()}
       <div class="grid-2">
         <div class="panel">
           <h2>Upcoming deadlines <span style="text-transform:none;letter-spacing:0;font-size:12.5px">next 30 days</span></h2>
-          ${deadlines.length ? deadlines.slice(0, 10).map((d) => {
+          ${foundWeek ? `<p class="kpi-sub" data-filter="bids:Found, not reviewed" data-go2="bids" style="cursor:pointer;margin:0 0 8px">+ ${foundWeek} found bid${foundWeek === 1 ? '' : 's'} close this week that nobody has reviewed. <b style="color:var(--blue)">See them</b></p>` : ''}
+          ${mine.length ? mine.slice(0, 12).map((d) => {
             const dt = parseDate(d.date); const cls = d.days < 0 ? 'overdue' : d.days <= 3 ? 'soon' : '';
             const when = d.days < 0 ? `${-d.days}d overdue` : d.days === 0 ? 'Today' : d.days === 1 ? 'Tomorrow' : `in ${d.days} days`;
             return `<div class="deadline" data-open="${d.view}:${d.id}"><div class="date-chip ${cls}"><small>${dt.toLocaleDateString(undefined, { month: 'short' })}</small><b>${dt.getDate()}</b></div>
               <div class="deadline-main"><div class="deadline-title">${esc(d.title)}</div><div class="deadline-sub">${esc(d.kind)} · ${when}</div></div></div>`;
-          }).join('') : '<div class="empty">Nothing due in the next 30 days.</div>'}
+          }).join('') : '<div class="empty">None of your bids or follow-ups are due in the next 30 days.</div>'}
         </div>
         <div class="panel">
           <h2>Bid pipeline <button data-go="bids">View all</button></h2>
           ${byStage.map((x) => `<div class="stage-row"><span style="text-transform:capitalize">${x.s} <span style="color:var(--muted)">(${x.n})</span></span>
             <div class="stage-bar"><span style="width:${x.n ? Math.max(4, (x.n / maxN) * 100) : 0}%;background:${STAGE_BAR[x.s]}"></span></div><span class="stage-val">${money(x.v)}</span></div>`).join('')}
-          <h2 style="margin-top:22px">Active jobs <button data-go="jobs">View all</button></h2>
-          ${activeJobs.length ? activeJobs.slice(0, 4).map((j) => `<div class="deadline" data-open="jobs:${j.id}"><div class="deadline-main"><div class="deadline-title">${esc(j.title)}</div><div class="deadline-sub">${esc(j.client || '')}</div></div><span class="badge ${STATUS_COLORS[j.status] || 'b-muted'}">${esc(j.status || '')}</span></div>`).join('') : '<div class="empty">No active jobs.</div>'}
+          <h2 style="margin-top:22px">Active work <button data-go="jobs">View all</button></h2>
+          ${activeWork.length ? activeWork.slice(0, 6).map((c) => `<div class="deadline" data-open="contracts:${esc(c.id)}"><div class="deadline-main"><div class="deadline-title">${esc(c.title)}</div><div class="deadline-sub">${esc([c.agency, c.end ? 'ends ' + fmtDate(c.end) : ''].filter(Boolean).join(' · '))}</div></div><span class="card-value">${money(c.value)}</span></div>`).join('') : '<div class="empty">No active contracts.</div>'}
         </div>
       </div>`;
   }
@@ -357,7 +431,7 @@
   function collectDeadlines() {
     const out = [];
     const push = (view, r, date, kind, title) => { const days = daysUntil(date); if (days !== null && days <= 30 && days >= -7) out.push({ view, id: r.id, date: dayOf(date), days, kind, title }); };
-    list('opportunities').filter((o) => !isPastOpp(o)).forEach((o) => push('bids', o, o.due, /sources sought|presol/i.test(o.noticeType || '') ? 'Response due' : 'Bid due', o.title || o.sol));
+    liveOpps().filter((o) => !isPastOpp(o)).forEach((o) => push('bids', o, o.due, (o.status || 'found') === 'found' ? 'Found bid due' : isSS(o) ? 'Response due' : 'Bid due', o.title || o.sol));
     list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).forEach((l) => push('leads', l, l.followUp, 'Follow up', l.name + (l.company ? ' — ' + l.company : '')));
     list('contacts').forEach((c) => push('people', c, c.nextFollow, 'Follow up', c.name + (c.agency ? ' — ' + c.agency : '')));
     list('jobs').filter((j) => j.status !== 'Complete').forEach((j) => { if (j.status === 'Scheduled') push('jobs', j, j.start, 'Job starts', j.title); push('jobs', j, j.due, 'Job due', j.title); });
@@ -367,27 +441,67 @@
 
   function renderList(key) {
     const c = COLLECTIONS[key];
-    const items = list(c.coll);
+    const items = key === 'bids' ? liveOpps() : list(c.coll);
     const sf = c.fields.find((x) => x.key === c.statusField);
     const statusOpts = [...new Set([...sf.options, ...items.map((i) => i[c.statusField]).filter(Boolean)])];
     const f = ui.filter[key] || c.defaultFilter || 'All';
     const q = (ui.query[key] || '').toLowerCase();
     const cnt = (s) => items.filter((i) => (i[c.statusField] || (key === 'bids' ? 'found' : '')) === s).length;
     const activeOf = (i) => ACTIVE.includes(i.status || 'found') && !isPastOpp(i);
-    let rows = items.filter((i) => (f === 'All' || (f === 'Active' ? activeOf(i) : (i[c.statusField] || (key === 'bids' ? 'found' : '')) === f)) &&
+    const SPECIAL = { Working: (i) => ['reviewing', 'bid', 'submitted'].includes(i.status), 'Found, not reviewed': (i) => (i.status || 'found') === 'found' && !isPastOpp(i),
+      'Needs approval': needsApproval, 'Needs close-out': (i) => ['found', 'reviewing', 'bid'].includes(i.status || 'found') && isPastOpp(i) };
+    let rows = items.filter((i) => (f === 'All' || (key === 'bids' && SPECIAL[f] ? SPECIAL[f](i) : (i[c.statusField] || (key === 'bids' ? 'found' : '')) === f)) &&
       (!q || c.search.some((k) => String(i[k] || '').toLowerCase().includes(q))));
     if (c.sortTitle) rows.sort((a, b) => String(c.title(a)).localeCompare(String(c.title(b))));
     else if (c.newestFirst) rows.sort((a, b) => String(b[c.dateKey] || '').localeCompare(String(a[c.dateKey] || '')));
     else rows.sort((a, b) => String(dayOf(a[c.dateKey]) || '9999').localeCompare(String(dayOf(b[c.dateKey]) || '9999')));
     const total = rows.reduce((a, r) => a + (Number(c.value(r)) || 0), 0);
-    const chips = [...(key === 'bids' ? [['Active', items.filter(activeOf).length]] : []), ['All', items.length], ...statusOpts.filter((s) => cnt(s)).map((s) => [s, cnt(s)])];
+    const special = key === 'bids' ? Object.entries(SPECIAL).map(([k, fn]) => [k, items.filter(fn).length]).filter(([k, n]) => n || k === 'Working') : [];
+    const chips = [...special, ['All', items.length], ...statusOpts.filter((s) => cnt(s)).map((s) => [s, cnt(s)])];
+    const extra = listExtras(key);
     return `
       <div class="toolbar">
         <input class="search" type="search" placeholder="Search ${c.label.toLowerCase()}…" value="${esc(ui.query[key] || '')}" data-search="${key}" />
         <div class="chips">${chips.map(([s, n]) => `<button class="chip ${f === s ? 'active' : ''}" data-filter="${key}:${esc(s)}" style="text-transform:${key === 'bids' ? 'capitalize' : 'none'}">${esc(s)}<span class="n">${n}</span></button>`).join('')}</div>
       </div>
+      ${extra}
       ${total ? `<p style="color:var(--muted);margin:0 0 10px;font-size:13px">${rows.length} shown · ${money(total)} total</p>` : ''}
-      ${rows.length ? `<div class="cards">${rows.map((r) => renderCard(key, r)).join('')}</div>` : `<div class="empty">${items.length ? 'No matches.' : `No ${c.label.toLowerCase()} yet.`}<br /><button class="btn primary" data-action="new">Add ${c.singular.toLowerCase()}</button></div>`}`;
+      ${extra && !items.length ? '' : rows.length ? `<div class="cards">${rows.map((r) => renderCard(key, r)).join('')}</div>` : `<div class="empty">${items.length ? 'No matches.' : `No ${c.label.toLowerCase()} yet.`}<br /><button class="btn primary" data-action="new">Add ${c.singular.toLowerCase()}</button></div>`}`;
+  }
+
+  // Records from the Pipeline and the award register that belong on Jobs, Leads and Inbox.
+  function listExtras(key) {
+    const sec = (title, cards) => cards ? `<h3 class="sec">${title}</h3><div class="cards" style="margin-bottom:16px">${cards}</div>` : '';
+    const mini = (open, title, sub, right, badge) => `<article class="card" data-open="${open}"><div class="card-top"><div style="min-width:0"><div class="card-title">${esc(title)}</div><div class="card-sub">${esc(sub)}</div></div>${right ? `<div class="card-value">${right}</div>` : ''}</div>${badge ? `<div class="card-meta">${badge}</div>` : ''}</article>`;
+    if (key === 'jobs') {
+      const act = awards().filter((c) => c.status === 'Active').sort((a, b) => String(a.end || '9').localeCompare(String(b.end || '9')));
+      return sec(`Active contracts (${act.length})`, act.map((c) => mini('contracts:' + c.id, c.title, [c.agency, c.end ? 'PoP ends ' + fmtDate(c.end) : ''].filter(Boolean).join(' · '), money(c.value), '<span class="badge b-green">Active</span>')).join('')) +
+        (list('jobs').length ? '<h3 class="sec">Other jobs</h3>' : '');
+    }
+    if (key === 'leads') {
+      const su = signups();
+      return sec(`New sub sign-ups from kcapexllc.com (${su.length})`, su.map((s) => mini('subs:' + s.id, s.company || 'Unnamed', [s.trade, s.area, s.signedUp ? 'signed up ' + fmtDate(s.signedUp) : ''].filter(Boolean).join(' · '), '', '<span class="badge b-gold">Not reviewed</span>')).join('')) +
+        (list('leads').length ? '<h3 class="sec">Your leads</h3>' : '');
+    }
+    if (key === 'messages') {
+      const r = coReplies();
+      return sec(`Contracting officer replies to follow-ups (${r.length})`, r.map((o) => mini('bids:' + o.id, o.title || o.sol, [o.sol, o.agency, o.followups.last ? 'last touch ' + fmtDate(o.followups.last) : ''].filter(Boolean).join(' · '), '', '<span class="badge b-gold">Needs reply</span>')).join('')) +
+        (list('messages').length ? '<h3 class="sec">Messages</h3>' : '');
+    }
+    return '';
+  }
+
+  function renderIntel() {
+    const rows = liveOpps().filter((o) => o.awardPrice || o.awardee).map((o) => ({ o, ours: oppPrice(o), win: Number(o.awardPrice) || 0 }))
+      .sort((a, b) => String(b.o.due || '').localeCompare(String(a.o.due || '')));
+    const both = rows.filter((r) => r.ours && r.win);
+    const avg = both.length ? Math.round(both.reduce((a, r) => a + (r.ours - r.win) / r.win * 100, 0) / both.length) : null;
+    return `<p style="color:var(--muted);margin:0 0 10px">Who won the bids KCAPEX lost, and at what price. Use it to set price-to-win.</p>
+      ${avg !== null ? `<div class="kpis" style="grid-template-columns:repeat(2,1fr)"><div class="kpi accent"><div class="kpi-label">Our price vs winner</div><div class="kpi-value">${avg > 0 ? '+' : ''}${avg}%</div><div class="kpi-sub">average over ${both.length} priced losses</div></div>
+        <div class="kpi"><div class="kpi-label">Losses logged</div><div class="kpi-value">${liveOpps().filter((o) => o.status === 'lost').length}</div><div class="kpi-sub">${rows.length} with award data</div></div></div>` : ''}
+      ${rows.length ? `<div class="cards">${rows.map(({ o, ours, win }) => { const d = ours && win ? Math.round((ours - win) / win * 100) : null;
+        return `<article class="card" data-open="bids:${esc(o.id)}"><div class="card-title">${esc(o.title || o.sol)}</div><div class="card-sub">${esc([o.sol, o.agency].filter(Boolean).join(' · '))}</div>
+          <div class="card-meta"><span>Winner <b>${esc(String(o.awardee || 'Not released').split(',')[0])}</b></span><span>Won at <b>${win ? money(win) : '—'}</b></span><span>Ours <b>${ours ? money(ours) : '—'}</b></span>${d !== null ? `<span class="badge ${d > 0 ? 'b-red' : 'b-green'}">${d > 0 ? '+' : ''}${d}%</span>` : ''}</div></article>`; }).join('')}</div>` : '<div class="empty">No award results logged yet.</div>'}`;
   }
 
   function renderCard(key, r) {
@@ -443,10 +557,11 @@
     return `<div class="tiles">
         ${tile(EXTRA[0], `${n.new} new`)}${tile(EXTRA[1], `${n.quick} open`)}
         ${tile(EXTRA[2], `${list('contacts').length} contacts`)}${tile(EXTRA[3], `${list('subs').length} subcontractors`)}${tile(EXTRA[4], `${list('pastperf').length} past performance`)}
+        ${tile(EXTRA[5], `${list('invoices').length} logged · ${n.invoices} unpaid`)}${tile(EXTRA[6], `${liveOpps().filter((o) => o.awardPrice || o.awardee).length} award results`)}
       </div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Install on your phone</h2>
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>
-      <div class="panel settings" style="margin-bottom:14px"><h2>Sync</h2><p>Bids, New, Quick-turn, People, Subs and Library sync with your KCAPEX Pipeline in Claude on a schedule. Leads, Jobs, Contracts and Inbox live in this app and are shared across your devices.</p>
+      <div class="panel settings" style="margin-bottom:14px"><h2>Sync</h2><p>Bids, New, Quick-turn, People, Subs and Library sync with your KCAPEX Pipeline in Claude on a schedule. Leads, Jobs, Contracts, Invoices and Inbox live in this app and are shared across your devices.</p>
         <div class="btn-row"><button class="btn" data-action="export">Export backup</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div></div>`;
   }
 
@@ -467,12 +582,15 @@
         let v = rec ? rec[f.key] ?? '' : defaults[f.key] ?? '';
         if (f.type === 'date') v = dayOf(v);
         const fid = 'f-' + f.key; let input;
-        if (f.type === 'select') { const opts = v && !f.options.includes(v) ? [v, ...f.options] : f.options; input = `<select id="${fid}" name="${f.key}">${opts.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`; }
+        if (f.optionsFn) { const opts = f.optionsFn(); input = `<select id="${fid}" name="${f.key}"><option value="">Choose…</option>${opts.map(([val, lab]) => `<option value="${esc(val)}" ${val === v ? 'selected' : ''}>${esc(lab)}</option>`).join('')}</select>`; }
+        else if (f.type === 'select') { const opts = v && !f.options.includes(v) ? [v, ...f.options] : f.options; input = `<select id="${fid}" name="${f.key}">${opts.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`; }
         else if (f.type === 'textarea') input = `<textarea id="${fid}" name="${f.key}">${esc(v)}</textarea>`;
         else input = `<input id="${fid}" name="${f.key}" type="${f.type}" ${f.type === 'number' ? 'inputmode="decimal" step="any" min="0"' : ''} value="${esc(v)}" ${f.required ? 'required' : ''} />`;
         return `<div class="field ${f.full ? 'full' : ''}"><label for="${fid}">${esc(f.label)}</label>${input}</div>`;
       }).join('')}</div>
       ${rec && safeUrl(rec.link) ? `<p style="margin:12px 0 0"><a class="lnk" href="${esc(safeUrl(rec.link))}" target="_blank" rel="noopener">Open notice ↗</a></p>` : ''}
+      ${rec && key === 'bids' ? bidExtras(rec) : ''}
+      ${rec && key === 'contracts' ? contractExtras(id) : ''}
       ${c.notes && rec ? `<div class="notes"><div class="field"><label for="f-note">Add a note</label><input id="f-note" name="__note" placeholder="Call, email, site visit, decision..." /></div>
         ${(Array.isArray(rec.notes) ? rec.notes : []).slice(-6).reverse().map((nt) => `<div class="note"><small>${esc(nt && nt.t)}</small>${esc(nt && nt.text)}</div>`).join('')}</div>` : ''}
       <div class="modal-actions">${rec ? '<button type="button" class="btn danger" data-action="delete">Delete</button>' : '<span></span>'}
@@ -495,6 +613,32 @@
     if (await saveDoc(c.coll, docId, body)) { modal.close(); toast(`${c.singular} saved`); }
   });
 
+  function bidExtras(o) {
+    const box = (t, body) => body ? `<div class="xbox"><h4>${t}</h4>${body}</div>` : '';
+    const subs = [...(o.subIds || []).map((x) => data.subs[x] && data.subs[x].company).filter(Boolean), ...(o.subsTxt ? [o.subsTxt] : [])];
+    const quotes = Object.entries(o.quotes || {}).map(([sid, q]) => `<div class="xrow"><span>${esc((data.subs[sid] || {}).company || sid)}</span><span class="badge ${q.status === 'received' ? 'b-green' : q.status === 'requested' ? 'b-gold' : 'b-muted'}">${esc(q.status)}${q.amount ? ' ' + money(q.amount) : ''}</span><small>asked ${esc(q.sentOn || '')}${q.dueOn ? ' · need by ' + esc(q.dueOn) : ''}${q.chases ? ' · chased ' + q.chases + 'x' : ''}</small></div>`).join('');
+    const pt = pricingTotal(o);
+    const intel = o.awardee || o.awardPrice ? `<div class="xrow"><span>Winner: <b>${esc(o.awardee || 'Not released')}</b></span>${o.awardPrice ? `<span>at <b>${money(o.awardPrice)}</b></span>` : ''}${o.awardPrice && oppPrice(o) ? `<span class="badge ${oppPrice(o) > o.awardPrice ? 'b-red' : 'b-green'}">ours ${money(oppPrice(o))} (${Math.round((oppPrice(o) - o.awardPrice) / o.awardPrice * 100)}%)</span>` : ''}</div>` : '';
+    return `<div class="xboxes">
+      ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Needs the majority owner's approval</h4><p>Price is over $500K. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve">Mark approved</button></div>` : ''}
+      ${box('Subcontractors and quotes', (subs.length ? `<p>${esc(subs.join(' · '))}</p>` : '') + (quotes || (subs.length ? '<p style="color:var(--muted)">No quote requests logged.</p>' : '')))}
+      ${box('Pricing', pt ? `<p>${(o.pricing.lines || []).length} CLIN${(o.pricing.lines || []).length === 1 ? '' : 's'} · ${o.pricing.mode === 'margin' ? 'margin' : 'markup'} ${o.pricing.pct}% · total <b>${money(Math.round(pt))}</b></p>` : '')}
+      ${box('Submission', o.method || o.submittedOn ? `<p>${esc(o.method || '')}${o.submittedOn ? ' · submitted ' + esc(fmtDate(o.submittedOn)) : ''}</p>` : '')}
+      ${box('Evaluation', o.evaluation ? `<p>${esc(typeof o.evaluation === 'string' ? o.evaluation : JSON.stringify(o.evaluation))}</p>` : '')}
+      ${box('Price intel', intel)}
+      ${o.followups && o.followups.lastReplyId && !o.followups.replyHandled ? `<div class="xbox"><h4>The contracting officer replied</h4><p>Last touch ${esc(fmtDate(o.followups.last))}. Answer it in Gmail, then clear it here.</p><button type="button" class="btn" data-action="replied">Mark replied</button></div>` : ''}
+    </div>`;
+  }
+  function contractExtras(cid) {
+    const inv = list('invoices').filter((i) => i.contractId === cid).sort((a, b) => String(b.sent || '').localeCompare(String(a.sent || '')));
+    const billed = inv.filter((i) => i.status !== 'Draft').reduce((a, i) => a + (Number(i.amount) || 0), 0), paid = inv.filter((i) => i.status === 'Paid').reduce((a, i) => a + (Number(i.amount) || 0), 0);
+    const val = Number((data.contracts[cid] || {}).value) || 0;
+    return `<div class="xboxes"><div class="xbox"><h4>Invoices and payments</h4>
+      <p>Invoiced <b>${money(billed)}</b> · paid <b>${money(paid)}</b>${val ? ` · left to bill <b>${money(Math.max(0, val - billed))}</b>` : ''}</p>
+      ${inv.map((i) => `<div class="xrow"><span>${esc(i.number || '')}</span><span>${money(i.amount)}</span><span class="badge ${i.status === 'Paid' ? 'b-green' : i.status === 'Sent' ? 'b-gold' : 'b-muted'}">${esc(i.status || '')}</span><small>${esc(fmtDate(i.sent))}</small></div>`).join('')}
+      <button type="button" class="btn" data-action="new-invoice" data-id="${esc(cid)}">Add invoice</button></div></div>`;
+  }
+
   async function takeIn(id) {
     const x = data.inbox[id]; if (!x) return;
     const body = { title: x.title, sol: x.sol, agency: x.agency, office: x.office, noticeType: x.noticeType || 'Other', setAside: x.setAside, naics: x.naics, place: x.place,
@@ -512,7 +656,7 @@
     if (!t) return;
     if (t.dataset.go) return go(t.dataset.go);
     if (t.dataset.open) { const i = t.dataset.open.indexOf(':'); return openForm(t.dataset.open.slice(0, i), t.dataset.open.slice(i + 1)); }
-    if (t.dataset.filter) { const i = t.dataset.filter.indexOf(':'); ui.filter[t.dataset.filter.slice(0, i)] = t.dataset.filter.slice(i + 1); return render(); }
+    if (t.dataset.filter) { const i = t.dataset.filter.indexOf(':'); ui.filter[t.dataset.filter.slice(0, i)] = t.dataset.filter.slice(i + 1); return t.dataset.go2 ? go(t.dataset.go2) : render(); }
     if (t.dataset.level) { ui.level = t.dataset.level; return render(); }
     const a = t.dataset.action;
     if (a === 'close') modal.close();
@@ -521,7 +665,13 @@
       if (!confirm('Delete this record? This cannot be undone.')) return;
       const c = COLLECTIONS[editing.key];
       if (await removeDoc(c.coll, editing.id)) { modal.close(); toast('Deleted'); }
-    } else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
+    } else if (a === 'approve' || a === 'replied') {
+      const id = editing.id, o = data.opportunities[id]; if (!o) return;
+      const body = { ...o, notes: [...(Array.isArray(o.notes) ? o.notes : []), { t: new Date().toLocaleString(), text: a === 'approve' ? 'Approved by the majority owner (bid over $500K), from the phone app.' : 'Contracting officer reply answered, from the phone app.' }] };
+      if (a === 'replied') body.followups = { ...o.followups, replyHandled: o.followups.lastReplyId };
+      if (await saveDoc('opportunities', id, body)) { modal.close(); toast(a === 'approve' ? 'Marked approved' : 'Marked replied'); }
+    } else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
+    else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
     else if (a === 'dismiss') { const x = data.inbox[t.dataset.id]; if (x && await saveDoc('inbox', t.dataset.id, { ...x, state: 'dismissed' })) toast('Dismissed'); }
     else if (a === 'export') exportData();
   });

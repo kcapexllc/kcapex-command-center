@@ -686,5 +686,21 @@ def mcp(token):
     return jsonify(answer) if answer is not None else Response(status=202)
 
 
+def warm_up():
+    """Connect to the database when the server starts, so problems show in the logs right away."""
+    with app.app_context():
+        try:
+            ensure_db()
+            count = run("SELECT COUNT(*) FROM records", fetch=True)[0][0]
+            print("database ready: %s records, password set: %s"
+                  % (count, bool(APP_PASSWORD or get_setting("password_hash"))), flush=True)
+        except Exception as err:
+            print("database not ready at start: %r" % (err,), flush=True)
+
+
+if DATABASE_URL:
+    warm_up()
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5050")), debug=False)

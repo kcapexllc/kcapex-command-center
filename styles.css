@@ -300,3 +300,10 @@ h3.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; colo
 @media (min-width: 960px) { .today-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --chrome: #1a0b30; --chrome-2: #2a1450; } }
 @media (max-width: 480px) { .topbar h1 { font-size: 17px; } .sync { font-size: 11px; max-width: 90px; text-align: right; line-height: 1.2; } }
+.claude-btn { background: linear-gradient(135deg, #c026d3, #7c3aed); border-color: transparent; }
+.askhome { margin-bottom: 16px; }
+.askhome .chips { flex-wrap: nowrap; }
+.btn.askbid { display: inline-flex; align-items: center; gap: 8px; justify-self: start; border-color: #c026d3; color: var(--accent); }
+.btn.askbid svg { width: 18px; height: 18px; }
+.msg { position: relative; }
+.msg .copy { display: block; margin-top: 8px; background: none; border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; font-size: 12px; color: var(--muted); }

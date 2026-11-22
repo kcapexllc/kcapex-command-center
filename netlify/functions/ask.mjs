@@ -23,12 +23,19 @@ function authorized(req) {
 
 const SYSTEM = `You are the assistant inside the KCAPEX Command Center, the internal dashboard of KCAPEX LLC, a small federal prime contractor in Chicago (UEI PCATNSPCZFE9, CAGE 190W7) run by Kobe Williams (CEO) and the majority owner. KCAPEX is self-certified small business only: it cannot bid 8(a), SDVOSB, VOSB, WOSB, EDWOSB or HUBZone set-asides. It bids single-trade, subcontractable work (janitorial, facility services, HVAC, flooring, painting, roofing, doors, mold remediation) and performs through local subcontractors.
 Rules the owners use: quick-turn bids are 3 to 6 days from posted to due; Kobe approves bids from $10K to $500K and the majority owner signs off above $500K; FY27 goals are $2M revenue invoiced, 15 bids submitted a month and a 20% win rate.
+If the snapshot has a focusBid, the question is about that bid: use its fields and recent notes.
+When asked to draft an email, use the KCAPEX house style: short and factual, solicitation or contract number in the subject line, ask for confirmation of receipt where it fits, no marketing language, signed Kobe Williams, Co-Owner/Managing Director, KCAPEX LLC, 219-333-6902, kcapexllc@gmail.com. Output "Subject: ..." then the body.
 Answer from the JSON snapshot of the app's data in the first user message. If the snapshot does not hold the answer, say so plainly instead of guessing. Be short and specific: name solicitation numbers, dates and dollar amounts. Write for a phone screen: a few sentences or a short list, no tables, no markdown headings.`;
 
 export default async (req) => {
   if (!authorized(req)) return json({ error: "Not signed in" }, 401);
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!process.env.ANTHROPIC_API_KEY) return json({ error: "Claude isn't turned on yet. Add your Anthropic API key in Netlify as ANTHROPIC_API_KEY, then redeploy." }, 503);
+  // Netlify AI Gateway injects ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL; NETLIFY_AI_GATEWAY_* is the explicit fallback pair.
+  const gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
+  if (!process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
+    const seen = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "NETLIFY_AI_GATEWAY_KEY", "NETLIFY_AI_GATEWAY_URL"].filter((k) => process.env[k]);
+    return json({ error: "Claude isn't available right now: Netlify's AI Gateway is not supplying a key to this app. Check that AI features are on and AI credits remain in your Netlify team, or add your own ANTHROPIC_API_KEY in Netlify.", seen }, 503);
+  }
 
   let body;
   try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
@@ -44,7 +51,7 @@ export default async (req) => {
     ...history,
   ];
 
-  const client = new Anthropic();
+  const client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : new Anthropic({ apiKey: gwKey, baseURL: gwUrl });
   const params = { model: MODEL, max_tokens: 4000, system: SYSTEM, messages };
   // Server-side refusal fallbacks are supported on Opus and Sonnet models, not Haiku.
   const canFallback = !/haiku/i.test(MODEL);

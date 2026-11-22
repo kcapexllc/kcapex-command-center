@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits'];
-  const APP_VERSION = '2026.11.22-3';
+  const APP_VERSION = '2026.11.22-4';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -433,6 +433,7 @@
         <div class="kpi"><div class="kpi-label">Awaiting decision</div><div class="kpi-value">${submitted.length}</div><div class="kpi-sub" ${stale.length ? 'data-filter="bids:Needs close-out" data-go2="bids" style="cursor:pointer"' : ''}>submitted${stale.length ? ` · <b style="color:var(--red)">${stale.length} need close-out</b>` : ''}</div></div>
         <div class="kpi"><div class="kpi-label">Needs reply</div><div class="kpi-value" style="color:${replies ? 'var(--red)' : 'inherit'}">${replies}</div><div class="kpi-sub">${coReplies().length} CO repl${coReplies().length === 1 ? 'y' : 'ies'} · ${leadsN} lead${leadsN === 1 ? '' : 's'}</div></div>
       </div>
+      ${askBox(true)}
       ${todayPanel(stale)}
       <div class="panel" style="margin-bottom:16px"><h2>FY27 scorecard <span style="text-transform:none;letter-spacing:0;font-size:12.5px">${Math.round(f * 100)}% of the year gone</span></h2>
         <div class="goals">
@@ -622,10 +623,24 @@
   }
 
   const chat = [];
+  let askFocus = null;
+  const QUICK_ASKS = [
+    'What should I work on today?',
+    'Which bids are due this week, and what does each still need?',
+    'How am I tracking against the FY27 goals?',
+    'Where is my pricing too high compared with the winners?',
+    'Which subs fit my open bids?',
+    'Draft an award status follow-up email for my oldest submitted bid.',
+  ];
+  function askBox(home) {
+    return `<div class="${home ? 'panel askhome' : ''}">${home ? '<h2>Ask Claude</h2>' : ''}
+      <div class="ask-row"><textarea id="ask-in" placeholder="Ask Claude about your bids, awards, subs or deadlines…" rows="2"></textarea><button class="btn primary" data-action="ask" id="ask-btn">Ask</button></div>
+      <div class="chips" style="margin-top:8px">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
+  }
   function renderAsk() {
     return `<p style="color:var(--muted);margin:0 0 10px">Ask about your bids, awards, subs and deadlines. Claude reads a snapshot of what's in this app.</p>
-      <div class="chat" id="chat">${chat.length ? chat.map((m) => `<div class="msg ${m.role}">${esc(m.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#+\s*/gm, '')}</div>`).join('') : '<div class="tempty">Try: "What should I work on today?" or "Which open bids have no sub quote yet?"</div>'}</div>
-      <div class="ask-row"><textarea id="ask-in" placeholder="Ask Claude…" rows="2"></textarea><button class="btn primary" data-action="ask" id="ask-btn">Send</button></div>`;
+      <div class="chat" id="chat">${chat.length ? chat.map((m) => `<div class="msg ${m.role}">${esc(m.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#+\s*/gm, '')}${m.role === 'assistant' && m.text !== 'Thinking…' ? '<button class="copy" data-copy="1">Copy</button>' : ''}</div>`).join('') : '<div class="tempty">Ask anything about your command center, or tap a question below. Claude can also draft emails to contracting officers and subs.</div>'}</div>
+      ${askBox(false)}${chat.length ? '<p style="margin-top:8px"><button class="btn" data-action="ask-clear">New conversation</button></p>' : ''}`;
   }
   function snapshot() {
     const o = liveOpps(), pick = (x) => ({ sol: x.sol, title: x.title, agency: x.agency, status: x.status, due: x.due, price: oppPrice(x) || null, method: methodTag(x.method), quotes: quoteSummary(x) || null, approval: needsApproval(x) ? approvalTier(x) : null });
@@ -644,12 +659,13 @@
       subs: list('subs').map((x) => ({ company: x.company, trade: x.trade, area: x.area, rating: x.rating })),
     };
   }
-  async function askClaude() {
-    const inp = $('#ask-in'); const q = inp && inp.value.trim(); if (!q) return;
+  async function askClaude(preset) {
+    const inp = $('#ask-in'); const q = (preset || (inp && inp.value) || '').trim(); if (!q) return;
+    if (ui.view !== 'ask') go('ask');
     chat.push({ role: 'user', text: q }); chat.push({ role: 'assistant', text: 'Thinking…' }); render();
     try {
       const r = await fetch('/api/ask', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: chat.slice(0, -1).slice(-12).map((m) => ({ role: m.role, content: m.text })), snapshot: snapshot() }) });
+        body: JSON.stringify({ messages: chat.slice(0, -1).slice(-12).map((m) => ({ role: m.role, content: m.text })), snapshot: { ...snapshot(), focusBid: askFocus } }) });
       const j = await r.json().catch(() => ({}));
       chat[chat.length - 1].text = r.ok ? (j.text || '(no answer)') : (j.error || 'Claude could not answer right now.');
     } catch (e) { chat[chat.length - 1].text = 'Could not reach Claude. Check your connection.'; }
@@ -732,6 +748,7 @@
     const pt = pricingTotal(o);
     const intel = o.awardee || o.awardPrice ? `<div class="xrow"><span>Winner: <b>${esc(o.awardee || 'Not released')}</b></span>${o.awardPrice ? `<span>at <b>${money(o.awardPrice)}</b></span>` : ''}${o.awardPrice && oppPrice(o) ? `<span class="badge ${oppPrice(o) > o.awardPrice ? 'b-red' : 'b-green'}">ours ${money(oppPrice(o))} (${Math.round((oppPrice(o) - o.awardPrice) / o.awardPrice * 100)}%)</span>` : ''}</div>` : '';
     return `<div class="xboxes">
+      <button type="button" class="btn askbid" data-action="ask-bid">${icon('ask')} Ask Claude about this bid</button>
       ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>${approvalTier(o) === 'owner' ? "Needs the majority owner's sign-off" : "Needs Kobe's approval"}</h4><p>${money(oppPrice(o))} · ${approvalTier(o) === 'owner' ? 'over $500K' : '$10K to $500K'}. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve" data-tier="${approvalTier(o)}">Mark approved by ${approvalTier(o) === 'owner' ? 'the majority owner' : 'Kobe'}</button></div>` : ''}
       ${['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Past due and never sent</h4><p>Close it out so it stops counting as open.</p><button type="button" class="btn" data-action="nobid">Close as no-bid</button></div>` : ''}
       ${box('Subcontractors and quotes', (subs.length ? `<p>${esc(subs.join(' · '))}</p>` : '') + (quotes || (subs.length ? '<p style="color:var(--muted)">No quote requests logged.</p>' : '')))}
@@ -775,6 +792,8 @@
   // ---------- Events ----------
   document.addEventListener('click', async (e) => {
     if (e.target.closest('[data-stop]')) return; // links inside cards
+    const qk = e.target.closest('[data-quick]'); if (qk) { askClaude(qk.dataset.quick); return; }
+    const cp = e.target.closest('[data-copy]'); if (cp) { const txt = cp.parentElement.innerText.replace(/Copy$/, '').trim(); navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
     const t = e.target.closest('[data-go],[data-open],[data-filter],[data-action],[data-level],[data-elig]');
     if (!t) return;
     if (t.dataset.go) return go(t.dataset.go);
@@ -804,6 +823,12 @@
       for (const o of stale) { const { id, ...rest } = o; if (await saveDoc('opportunities', id, { ...rest, status: 'no-bid', notes: [...(Array.isArray(rest.notes) ? rest.notes : []), { t: new Date().toLocaleString(), text: 'Closed as no-bid: due date passed without a submission (phone app).' }] })) n++; }
       toast(`Closed ${n} as no-bid`);
     } else if (a === 'ask') { askClaude(); }
+    else if (a === 'ask-clear') { chat.length = 0; askFocus = null; render(); }
+    else if (a === 'ask-bid') {
+      const o = data.opportunities[editing.id]; if (!o) return; modal.close();
+      const { notes, ...rest } = o; askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
+      askClaude(`Tell me about bid ${o.sol || ''} ${o.title || ''}: where it stands, what it still needs before it goes in, the risks, and the next step.`);
+    }
     else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); } catch (_) { /* ignore */ } location.reload(); }
     else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
     else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
@@ -814,6 +839,7 @@
   document.addEventListener('input', (e) => { if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));
   $('#more-btn').addEventListener('click', () => go('more'));
+  $('#claude-btn').addEventListener('click', () => go('ask'));
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });
 
   function exportData() {

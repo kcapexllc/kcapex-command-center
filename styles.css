@@ -69,7 +69,7 @@ button { cursor: pointer; }
 
 /* Tab bar (mobile) */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(6, 1fr);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(7, 1fr);
   background: var(--glass-2); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--line); padding: 6px 4px calc(6px + var(--safe-b));
 }
@@ -219,7 +219,7 @@ button { cursor: pointer; }
   .today { display: inline; }
   .topbar { padding: 16px 28px; }
   .view { padding: 24px 28px 48px; }
-  .kpis { grid-template-columns: repeat(6, 1fr); }
+  .kpis { grid-template-columns: repeat(7, 1fr); }
   .grid-2 { grid-template-columns: 1.1fr 1fr; }
   .cards { grid-template-columns: repeat(3, 1fr); }
   .fab { bottom: 28px; right: 28px; }
@@ -371,3 +371,12 @@ h3.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; colo
 .cfile button, .focus-chip button { background: none; border: 0; cursor: pointer; color: var(--muted); padding: 0 2px; }
 .focus-chip { font-size: 12.5px; color: var(--muted); margin: 0 4px 6px; }
 .fab[hidden] { display: none; }
+
+/* Seven tabs on phones; Opportunities shows how many new bids are waiting. */
+.tabbar button { position: relative; font-size: 10px; letter-spacing: -.1px; }
+.tabbar button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbadge { position: absolute; top: 0; left: 50%; margin-left: 6px; font-style: normal; font-size: 9px; font-weight: 700; line-height: 15px; min-width: 15px; padding: 0 4px; border-radius: 999px; background: #c026d3; color: #fff; }
+/* Keep the page from sliding sideways on iPhone when a row of chips is wider than the screen. */
+html, body { overflow-x: clip; }
+.main { min-width: 0; overflow-x: clip; }
+.chat-hello .chips { flex-wrap: wrap; }

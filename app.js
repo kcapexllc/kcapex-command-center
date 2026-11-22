@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-6';
+  const APP_VERSION = '2026.11.22-7';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -320,7 +320,7 @@
     { id: 'visits', label: 'Site visits', icon: 'visits' },
     { id: 'ask', label: 'Ask Claude', icon: 'ask' },
   ];
-  const TITLES = { dashboard: 'Command Center', more: 'More', new: 'New opportunities', quick: 'Quick-turn bids', intel: 'Price intel', ask: 'Ask Claude' };
+  const TITLES = { dashboard: 'Command Center', more: 'Opportunities', new: 'New opportunities', quick: 'Quick-turn bids', intel: 'Price intel', ask: 'Ask Claude' };
 
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
@@ -343,7 +343,10 @@
     const n = counts();
     const btn = (v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}">${icon(v.icon)}<span>${v.id === 'dashboard' ? 'Dashboard' : v.label}</span>${n[v.id] ? `<span class="count">${n[v.id]}</span>` : ''}</button>`;
     $('#nav').innerHTML = TABS.map(btn).join('') + '<div style="height:10px"></div>' + EXTRA.map(btn).join('') + btn({ id: 'more', label: 'Settings', icon: 'settings' });
-    $('#tabbar').innerHTML = TABS.map((v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}" aria-label="${v.label}">${icon(v.icon)}<span>${v.label}</span></button>`).join('');
+    // Phone tab bar: the six main screens plus Opportunities, which opens the More screen (New, Quick-turn, People, Subs…).
+    const inMore = ui.view === 'more' || EXTRA.some((v) => v.id === ui.view);
+    $('#tabbar').innerHTML = TABS.map((v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}" aria-label="${v.label}">${icon(v.icon)}<span>${v.label}</span></button>`).join('')
+      + `<button data-go="more" class="${inMore ? 'active' : ''}" aria-label="Opportunities">${icon('new')}<span>Opps</span>${n.new ? `<i class="tbadge">${n.new > 99 ? '99+' : n.new}</i>` : ''}</button>`;
   }
 
   function render() {

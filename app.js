@@ -39,11 +39,13 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-9';
+  const APP_VERSION = '2026.11.23-10';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
-  const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
+  // Speed: a screen draw asks for these lists dozens of times, so each one is built once and reused until its data changes.
+  const listMemo = {}; let dataRev = 0;
+  const list = (c) => { const src = data[c]; let m = listMemo[c]; if (!m || m.src !== src) m = listMemo[c] = { src, arr: Object.entries(src).map(([id, d]) => ({ id, ...d })) }; return m.arr.slice(); };
 
   async function saveDoc(c, id, body) {
     if (!db) { toast('Not connected yet. Try again in a moment.'); return false; }
@@ -330,18 +332,25 @@
 
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
-  // Each screen remembers how far down you were, like the Claude app; a quick fade marks the change.
-  const scrollMem = {}, navStack = []; let swiping = false;
-  function go(view, isBack) {
+  // Each screen remembers how far down you were, like the Claude app. A tap switches screens at once, with no fade.
+  // `drawn` is set by the swipe pager: it has already drawn the screen beside the old one and puts it in place itself.
+  const scrollMem = {}, navStack = []; let pagerFinish = null;
+  function go(view, isBack, drawn) {
+    if (!drawn && pagerFinish) pagerFinish();
     if (view !== ui.view) { scrollMem[ui.view] = window.scrollY; if (!isBack) { navStack.push(ui.view); if (navStack.length > 30) navStack.shift(); } }
     const same = view === ui.view; ui.view = view; try { closeTopMenu(); } catch (_) { /* menu not ready yet */ }
     try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
+    if (drawn) { renderChrome(); return; }
     render(); window.scrollTo({ top: same || view === 'ask' ? 0 : scrollMem[view] || 0 });
-    if (!same && !swiping) { const v = $('#view'); v.classList.remove('fade-in', 'slide-l', 'slide-r'); void v.offsetWidth; v.classList.add('fade-in'); }
   }
 
   // ---------- Rendering ----------
+  let countsMemo = null;
   function counts() {
+    const key = dataRev + '|' + isoDay(); if (countsMemo && countsMemo.key === key) return countsMemo.n;
+    const n = countsNow(); countsMemo = { key, n }; return n;
+  }
+  function countsNow() {
     return {
       bids: liveOpps().filter((o) => ['reviewing', 'bid', 'submitted'].includes(o.status)).length,
       leads: list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length + signups().length,
@@ -356,33 +365,46 @@
   function renderNav() {
     const n = counts();
     const btn = (v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}">${icon(v.icon)}<span>${v.id === 'dashboard' ? 'Dashboard' : v.label}</span>${n[v.id] ? `<span class="count">${n[v.id]}</span>` : ''}</button>`;
-    $('#nav').innerHTML = TABS.map(btn).join('') + '<div style="height:10px"></div>' + EXTRA.map(btn).join('') + btn({ id: 'more', label: 'Settings', icon: 'settings' });
+    setHTML($('#nav'), TABS.map(btn).join('') + '<div style="height:10px"></div>' + EXTRA.map(btn).join('') + btn({ id: 'more', label: 'Settings', icon: 'settings' }));
     // Phone tab bar: the six main screens plus Opportunities, which opens the More screen (New, Quick-turn, People, Subs…).
     const inMore = ui.view === 'more' || EXTRA.some((v) => v.id === ui.view);
     const tab = (v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}" aria-label="${v.label}">${icon(v.icon)}<span>${v.label}</span></button>`;
     const opps = `<button data-go="more" class="${inMore ? 'active' : ''}" aria-label="Opportunities">${icon('new')}<span>Opps</span>${n.new ? `<i class="tbadge">${n.new > 99 ? '99+' : n.new}</i>` : ''}</button>`;
     const byId = Object.fromEntries(TABS.map((v) => [v.id, v]));
     // Order on phones: Home, Opportunities, Leads, Bids, Jobs, Contracts, Inbox.
-    $('#tabbar').innerHTML = tab(byId.dashboard) + opps + ['leads', 'bids', 'jobs', 'contracts', 'messages'].map((id) => tab(byId[id])).join('');
+    setHTML($('#tabbar'), tab(byId.dashboard) + opps + ['leads', 'bids', 'jobs', 'contracts', 'messages'].map((id) => tab(byId[id])).join(''));
   }
+  // Writes markup only when it differs from what is already there (redrawing identical tab bars cost time on every screen change).
+  function setHTML(el, html) { if (el._kcHTML !== html) { el.innerHTML = html; el._kcHTML = html; } }
 
-  function render() {
+  // Top bar title, the live line under it, the tabs and the + button.
+  function renderChrome() {
     renderNav();
     const c = COLLECTIONS[ui.view];
     $('#view-title').textContent = TITLES[ui.view] || (c ? c.label : '');
     $('#view-sub').textContent = viewSub();
     $('#fab').hidden = !(c || ui.view === 'dashboard');
+  }
+  // The markup for the current screen's body.
+  function viewHTML() {
+    try {
+      if (ui.view === 'dashboard') return renderDashboard();
+      if (ui.view === 'more') return renderMore();
+      if (ui.view === 'new') return renderNew();
+      if (ui.view === 'quick') return renderQuick();
+      if (ui.view === 'intel') return renderIntel();
+      if (ui.view === 'ask') return renderAsk();
+      return renderList(ui.view);
+    } catch (err) { console.error(err); return `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
+  }
+  // The markup for another screen, without leaving this one (used to draw the next screen beside it during a swipe).
+  function htmlFor(v) { const cur = ui.view; ui.view = v; try { return viewHTML(); } finally { ui.view = cur; } }
+  function render() {
+    if (pagerFinish) pagerFinish();
+    renderChrome();
     const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null, keepAsk = ae && ae.id === 'ask-in';
     const el = $('#view');
-    try {
-      if (ui.view === 'dashboard') el.innerHTML = renderDashboard();
-      else if (ui.view === 'more') el.innerHTML = renderMore();
-      else if (ui.view === 'new') el.innerHTML = renderNew();
-      else if (ui.view === 'quick') el.innerHTML = renderQuick();
-      else if (ui.view === 'intel') el.innerHTML = renderIntel();
-      else if (ui.view === 'ask') { el.innerHTML = renderAsk(); }
-      else el.innerHTML = renderList(ui.view);
-    } catch (err) { console.error(err); el.innerHTML = `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
+    el.innerHTML = viewHTML();
     if (keepAsk) { const s = $('#ask-in'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
   }
@@ -1401,26 +1423,47 @@
   }
   function goBack() { const prev = navStack.pop() || (SWIPE_ORDER.includes(ui.view) ? null : 'dashboard'); if (prev) go(prev, true); }
   // dir -1: finger moves right (back / previous). dir +1: finger moves left (next).
+  // Returns { view, back } for a whole screen (drawn beside this one while you swipe), { fn } for a step inside Ask Claude, or null.
   function swipeTarget(dir) {
     if (ui.view === 'ask') {
       if (dir > 0) return null;
-      if (projView && projView !== 'list') return () => { projView = 'list'; render(); };
-      if (projView === 'list') return () => { projView = null; render(); };
-      return () => goBack();
+      if (projView && projView !== 'list') return { fn: () => { projView = 'list'; render(); } };
+      if (projView === 'list') return { fn: () => { projView = null; render(); } };
+    } else {
+      const i = SWIPE_ORDER.indexOf(ui.view);
+      if (i >= 0) { const j = i + dir; return j >= 0 && j < SWIPE_ORDER.length ? { view: SWIPE_ORDER[j], back: false } : null; }
+      if (dir > 0) return null;
     }
-    const i = SWIPE_ORDER.indexOf(ui.view);
-    if (i >= 0) { const j = i + dir; return j >= 0 && j < SWIPE_ORDER.length ? () => go(SWIPE_ORDER[j]) : null; }
-    return dir < 0 ? () => goBack() : null;
+    const prev = navStack[navStack.length - 1] || (SWIPE_ORDER.includes(ui.view) ? null : 'dashboard');
+    if (!prev) return null;
+    return prev === 'ask' ? { fn: () => goBack() } : { view: prev, back: true };
   }
+  // The pager. While your finger moves, the next screen is already drawn and slides in beside the current one,
+  // the way the Claude app does it. Nothing is redrawn and nothing goes blank when you let go.
   const view = $('#view'); let g = null;
-  const resetView = () => { view.style.transition = ''; view.style.transform = ''; view.style.opacity = ''; };
+  const EASE = 'cubic-bezier(.22,.8,.26,1)';
+  const resetView = () => { view.style.transition = ''; view.style.transform = ''; view.style.opacity = ''; view.style.willChange = ''; };
+  const viewTop = () => view.getBoundingClientRect().top + window.scrollY;
+  // Draws `target` in a layer over the page, parked one screen-width to the side, at the spot it was last scrolled to.
+  function buildPeek(target, dir) {
+    const layer = document.createElement('div'); layer.className = 'peek';
+    const inner = document.createElement('section'); inner.className = 'view';
+    inner.innerHTML = htmlFor(target.view); layer.appendChild(inner); view.parentNode.appendChild(layer);
+    const top = viewTop(), maxScroll = Math.max(0, top + inner.offsetHeight - innerHeight);
+    const scroll = Math.min(scrollMem[target.view] || 0, maxScroll);
+    const pk = { layer, inner, target, dir, rev: dataRev, scroll, y: top - scroll };
+    placePeek(pk, dir * innerWidth); return pk;
+  }
+  const placePeek = (pk, x) => { pk.inner.style.transform = `translate3d(${x}px,${pk.y}px,0)`; };
+  const dropPeeks = (was) => { ['back', 'fwd'].forEach((k) => { if (was[k + 'Peek']) { was[k + 'Peek'].layer.remove(); was[k + 'Peek'] = null; } }); };
   document.addEventListener('touchstart', (e) => {
     g = null;
+    if (pagerFinish) return; // a swipe is still settling
     if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !$('#top-menu').hidden || !matchMedia('(max-width: 899px)').matches) return;
     const t = e.target, p = e.touches[0];
     if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .composer, .pr-menu') || scrollsSideways(t)) return;
     if (p.clientX <= 22 || p.clientX >= innerWidth - 10) return; // left edge opens the menu
-    g = { x: p.clientX, y: p.clientY, t: Date.now(), lock: null };
+    g = { x: p.clientX, y: p.clientY, t: Date.now(), lock: null, lx: p.clientX, lt: Date.now(), v: 0 };
   }, { passive: true });
   document.addEventListener('touchmove', (e) => {
     if (!g) return;
@@ -1432,27 +1475,54 @@
     }
     if (g.lock !== 'h') return;
     e.preventDefault();
-    const ok = dx > 0 ? g.back : g.fwd, tx = ok ? dx : dx * 0.22;
-    view.style.transform = `translate3d(${tx}px,0,0)`; view.style.opacity = String(1 - Math.min(0.3, Math.abs(tx) / innerWidth * 0.5));
+    const now = Date.now(); if (now > g.lt) { g.v = (p.clientX - g.lx) / (now - g.lt); g.lx = p.clientX; g.lt = now; }
+    const side = dx > 0 ? 'back' : 'fwd', other = dx > 0 ? 'fwd' : 'back', ok = g[side], tx = ok ? dx : dx * 0.22;
+    if (ok && ok.view && !g[side + 'Peek']) g[side + 'Peek'] = buildPeek(ok, dx > 0 ? -1 : 1);
+    view.style.transform = `translate3d(${tx}px,0,0)`;
+    if (g[side + 'Peek']) placePeek(g[side + 'Peek'], tx + g[side + 'Peek'].dir * innerWidth);
+    if (g[other + 'Peek']) placePeek(g[other + 'Peek'], g[other + 'Peek'].dir * innerWidth);
   }, { passive: false });
   document.addEventListener('touchend', (e) => {
     if (!g) return; const was = g; g = null;
     if (was.lock !== 'h') return;
-    const p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), fn = dx > 0 ? was.back : was.fwd, sign = dx > 0 ? 1 : -1;
-    if (fn && (Math.abs(dx) > innerWidth * 0.2 || (Math.abs(dx) / dt > 0.4 && Math.abs(dx) > 45))) {
-      view.style.transition = 'transform .13s ease-in, opacity .13s'; view.style.transform = `translate3d(${sign * innerWidth * 0.5}px,0,0)`; view.style.opacity = '0';
-      setTimeout(() => {
-        swiping = true; fn(); swiping = false;
-        view.style.transition = 'none'; view.style.transform = `translate3d(${-sign * 48}px,0,0)`; view.style.opacity = '.4'; void view.offsetWidth;
-        view.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1), opacity .2s'; view.style.transform = 'translate3d(0,0,0)'; view.style.opacity = '1';
-        setTimeout(() => { resetView(); view.style.willChange = ''; }, 230);
-      }, 130);
+    const W = innerWidth, p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), sign = dx > 0 ? 1 : -1;
+    const side = dx > 0 ? 'back' : 'fwd', tgt = was[side], pk = was[side + 'Peek'];
+    const v = Date.now() - was.lt > 90 ? 0 : was.v; // a finger that stopped before lifting is not a flick
+    const flick = (Math.abs(v) > 0.35 && Math.sign(v) === sign) || (Math.abs(dx) / dt > 0.4 && Math.abs(dx) > 45);
+    const commit = tgt && Math.abs(dx) > 12 && (Math.abs(dx) > W * 0.2 || flick);
+    if (commit && pk) {
+      // Let go: the top bar and tabs switch at once, and both screens glide the rest of the way.
+      const ms = Math.round(Math.max(90, Math.min(210, 230 * (1 - Math.abs(dx) / W))));
+      if (tgt.back) navStack.pop();
+      go(tgt.view, tgt.back, true);
+      const other = was[side === 'back' ? 'fwdPeek' : 'backPeek']; if (other) other.layer.remove();
+      view.style.transition = pk.inner.style.transition = `transform ${ms}ms ${EASE}`;
+      view.style.transform = `translate3d(${sign * W}px,0,0)`; placePeek(pk, 0);
+      let timer = 0;
+      pagerFinish = () => {
+        pagerFinish = null; clearTimeout(timer);
+        if (ui.view === tgt.view) {
+          if (pk.rev === dataRev) { view.replaceChildren(...pk.inner.childNodes); resetView(); pk.layer.remove(); window.scrollTo(0, pk.scroll); }
+          else { resetView(); pk.layer.remove(); render(); window.scrollTo(0, pk.scroll); } // data changed mid-swipe: draw it fresh
+        } else { resetView(); pk.layer.remove(); }
+      };
+      timer = setTimeout(() => { if (pagerFinish) pagerFinish(); }, ms + 20);
+    } else if (commit) {
+      // A step inside Ask Claude (folder list, back to a chat): switch right away and slide the new screen in.
+      dropPeeks(was);
+      if (tgt.fn) tgt.fn(); else { if (tgt.back) navStack.pop(); go(tgt.view, tgt.back); }
+      view.style.transition = 'none'; view.style.transform = `translate3d(${-sign * W * 0.3}px,0,0)`; void view.offsetWidth;
+      view.style.transition = `transform 160ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
+      setTimeout(resetView, 180);
     } else {
-      view.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1), opacity .2s'; view.style.transform = 'translate3d(0,0,0)'; view.style.opacity = '1';
-      setTimeout(() => { resetView(); view.style.willChange = ''; }, 230);
+      // Not far enough: everything slides back.
+      const ms = 160;
+      view.style.transition = `transform ${ms}ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
+      ['back', 'fwd'].forEach((k) => { const q = was[k + 'Peek']; if (q) { q.inner.style.transition = `transform ${ms}ms ${EASE}`; placePeek(q, q.dir * W); } });
+      setTimeout(() => { resetView(); dropPeeks(was); }, ms + 20);
     }
   }, { passive: true });
-  document.addEventListener('touchcancel', () => { if (g && g.lock === 'h') resetView(); g = null; }, { passive: true });
+  document.addEventListener('touchcancel', () => { if (g && g.lock === 'h') { resetView(); dropPeeks(g); } g = null; }, { passive: true });
 
   // ---------- ⋯ menu (top right), like the Claude app ----------
   const topMenu = $('#top-menu'), topBack = $('#top-menu-back');
@@ -1499,7 +1569,7 @@
     db = d;
     DBC.forEach((c) => d.collection(c).onSnapshot((snap) => {
       const m = {}; snap.docs.forEach((s) => { const b = s.data(); if (b && !b.deleted) m[s.id] = b; });
-      data[c] = m; loadedColls.add(c); if (c === 'projects' || c === 'opportunities' || c === 'chats') setTimeout(numberFolders, 500); $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
+      data[c] = m; dataRev++; loadedColls.add(c); if (c === 'projects' || c === 'opportunities' || c === 'chats') setTimeout(numberFolders, 500); $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
     }, () => { $('#sync').textContent = 'Offline'; }));
   });
   window.addEventListener('kc-meta', () => { $('#sync').textContent = syncLine(false); });

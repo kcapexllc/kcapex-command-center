@@ -427,12 +427,9 @@ body.kc-typing .tabbar { display: none; }
 .proj-chip { display: block; width: 100%; text-align: left; background: color-mix(in srgb, var(--blue) 10%, transparent); border: 0; border-radius: 10px; padding: 7px 12px; margin: -2px 0 8px; font: inherit; font-size: 13px; font-weight: 600; color: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj-chip span { font-weight: 400; color: var(--muted); }
 .chat-head { gap: 6px; } .chat-head .btn { white-space: nowrap; }
-/* Tab swipe animation */
-@keyframes kcSlideL { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
-@keyframes kcSlideR { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
-.view.slide-l { animation: kcSlideL .22s ease-out; }
-.view.slide-r { animation: kcSlideR .22s ease-out; }
-@media (prefers-reduced-motion: reduce) { .view.slide-l, .view.slide-r { animation: none; } }
+/* Swipe pager: the next screen is drawn in this layer and slides in beside the current one */
+.peek { position: fixed; inset: 0; z-index: 4; overflow: hidden; pointer-events: none; }
+.peek > .view { will-change: transform; }
 
 /* ---------- Claude-like feel ---------- */
 * { -webkit-tap-highlight-color: transparent; }
@@ -440,9 +437,7 @@ html { -webkit-text-size-adjust: 100%; }
 body { overscroll-behavior-y: none; }
 button, .card, .tile, .chip, .kpi { touch-action: manipulation; }
 button:active, .tile:active, .card:active, .chip:active { transform: scale(.975); transition: transform .08s; }
-@keyframes kcFade { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.view.fade-in { animation: kcFade .16s ease-out; }
-@media (prefers-reduced-motion: reduce) { .view.fade-in { animation: none; } button:active { transform: none; } }
+@media (prefers-reduced-motion: reduce) { button:active { transform: none; } }
 
 /* Menu button + slide-out drawer (phones) */
 .menu-btn { display: none; background: transparent; border-color: transparent; color: #fff; margin-right: 2px; }

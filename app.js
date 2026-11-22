@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-7';
+  const APP_VERSION = '2026.11.23-8';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -331,13 +331,13 @@
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
   // Each screen remembers how far down you were, like the Claude app; a quick fade marks the change.
-  const scrollMem = {};
-  function go(view) {
-    if (view !== ui.view) scrollMem[ui.view] = window.scrollY;
-    const same = view === ui.view; ui.view = view;
+  const scrollMem = {}, navStack = []; let swiping = false;
+  function go(view, isBack) {
+    if (view !== ui.view) { scrollMem[ui.view] = window.scrollY; if (!isBack) { navStack.push(ui.view); if (navStack.length > 30) navStack.shift(); } }
+    const same = view === ui.view; ui.view = view; try { closeTopMenu(); } catch (_) { /* menu not ready yet */ }
     try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
     render(); window.scrollTo({ top: same || view === 'ask' ? 0 : scrollMem[view] || 0 });
-    if (!same) { const v = $('#view'); v.classList.remove('fade-in', 'slide-l', 'slide-r'); void v.offsetWidth; v.classList.add('fade-in'); }
+    if (!same && !swiping) { const v = $('#view'); v.classList.remove('fade-in', 'slide-l', 'slide-r'); void v.offsetWidth; v.classList.add('fade-in'); }
   }
 
   // ---------- Rendering ----------
@@ -1309,7 +1309,7 @@
   document.addEventListener('change', (e) => { if (e.target.id === 'proj-file' && e.target.files.length) { addProjectFiles(projView, [...e.target.files]); e.target.value = ''; return; } if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));
-  $('#more-btn').addEventListener('click', () => go('more'));
+  $('#more-btn').addEventListener('click', () => (topMenu.hidden ? openTopMenu() : closeTopMenu()));
   $('#claude-btn').addEventListener('click', () => go('ask'));
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });
 
@@ -1365,33 +1365,106 @@
     if (!was.open && dx > 0) openDrawer(); else if (was.open && dx < 0) closeDrawer();
   }, { passive: true });
 
-  // ---------- Swipe between tabs (phones) ----------
-  // Swipe left for the next tab, right for the previous one, in the order of the bottom bar.
+  // ---------- Swipe navigation (phones) ----------
+  // The screen follows your finger. Swipe left for the next tab, right for the previous one; on other screens
+  // (a chat, a bid folder, Quick-turn…) swiping right goes back to where you came from.
   const SWIPE_ORDER = ['dashboard', 'more', 'leads', 'bids', 'jobs', 'contracts', 'messages'];
-  const tabIndex = (v) => { const i = SWIPE_ORDER.indexOf(v); return i >= 0 ? i : EXTRA.some((x) => x.id === v) && v !== 'ask' ? 1 : -1; };
-  let sw = null;
   function scrollsSideways(el) {
     for (let n = el; n && n !== document.body; n = n.parentElement) {
       if (n.scrollWidth > n.clientWidth + 4) { const ox = getComputedStyle(n).overflowX; if (ox === 'auto' || ox === 'scroll') return true; }
     }
     return false;
   }
+  function goBack() { const prev = navStack.pop() || (SWIPE_ORDER.includes(ui.view) ? null : 'dashboard'); if (prev) go(prev, true); }
+  // dir -1: finger moves right (back / previous). dir +1: finger moves left (next).
+  function swipeTarget(dir) {
+    if (ui.view === 'ask') {
+      if (dir > 0) return null;
+      if (projView && projView !== 'list') return () => { projView = 'list'; render(); };
+      if (projView === 'list') return () => { projView = null; render(); };
+      return () => goBack();
+    }
+    const i = SWIPE_ORDER.indexOf(ui.view);
+    if (i >= 0) { const j = i + dir; return j >= 0 && j < SWIPE_ORDER.length ? () => go(SWIPE_ORDER[j]) : null; }
+    return dir < 0 ? () => goBack() : null;
+  }
+  const view = $('#view'); let g = null;
+  const resetView = () => { view.style.transition = ''; view.style.transform = ''; view.style.opacity = ''; };
   document.addEventListener('touchstart', (e) => {
-    sw = null;
-    if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !matchMedia('(max-width: 899px)').matches) return;
-    const t = e.target; if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .chatwrap, .projwrap') || scrollsSideways(t)) return;
-    if (tabIndex(ui.view) < 0) return;
-    const p = e.touches[0]; if (p.clientX < 16 || p.clientX > innerWidth - 16) return; // leave the screen edges to iPhone
-    sw = { x: p.clientX, y: p.clientY, t: Date.now() };
+    g = null;
+    if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !$('#top-menu').hidden || !matchMedia('(max-width: 899px)').matches) return;
+    const t = e.target, p = e.touches[0];
+    if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .composer, .pr-menu') || scrollsSideways(t)) return;
+    if (p.clientX <= 22 || p.clientX >= innerWidth - 10) return; // left edge opens the menu
+    g = { x: p.clientX, y: p.clientY, t: Date.now(), lock: null };
   }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    const p = e.touches[0], dx = p.clientX - g.x, dy = p.clientY - g.y;
+    if (g.lock === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      g.lock = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v';
+      if (g.lock === 'h') { g.back = swipeTarget(-1); g.fwd = swipeTarget(1); view.style.transition = 'none'; view.style.willChange = 'transform'; }
+    }
+    if (g.lock !== 'h') return;
+    e.preventDefault();
+    const ok = dx > 0 ? g.back : g.fwd, tx = ok ? dx : dx * 0.22;
+    view.style.transform = `translate3d(${tx}px,0,0)`; view.style.opacity = String(1 - Math.min(0.3, Math.abs(tx) / innerWidth * 0.5));
+  }, { passive: false });
   document.addEventListener('touchend', (e) => {
-    if (!sw) return; const p = e.changedTouches[0], dx = p.clientX - sw.x, dy = p.clientY - sw.y, dt = Date.now() - sw.t; sw = null;
-    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || dt > 700) return;
-    const i = tabIndex(ui.view), j = i + (dx < 0 ? 1 : -1);
-    if (j < 0 || j >= SWIPE_ORDER.length) return;
-    go(SWIPE_ORDER[j]);
-    const v = $('#view'); v.classList.remove('slide-l', 'slide-r'); void v.offsetWidth; v.classList.add(dx < 0 ? 'slide-l' : 'slide-r');
+    if (!g) return; const was = g; g = null;
+    if (was.lock !== 'h') return;
+    const p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), fn = dx > 0 ? was.back : was.fwd, sign = dx > 0 ? 1 : -1;
+    if (fn && (Math.abs(dx) > innerWidth * 0.2 || (Math.abs(dx) / dt > 0.4 && Math.abs(dx) > 45))) {
+      view.style.transition = 'transform .13s ease-in, opacity .13s'; view.style.transform = `translate3d(${sign * innerWidth * 0.5}px,0,0)`; view.style.opacity = '0';
+      setTimeout(() => {
+        swiping = true; fn(); swiping = false;
+        view.style.transition = 'none'; view.style.transform = `translate3d(${-sign * 48}px,0,0)`; view.style.opacity = '.4'; void view.offsetWidth;
+        view.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1), opacity .2s'; view.style.transform = 'translate3d(0,0,0)'; view.style.opacity = '1';
+        setTimeout(() => { resetView(); view.style.willChange = ''; }, 230);
+      }, 130);
+    } else {
+      view.style.transition = 'transform .2s cubic-bezier(.2,.8,.2,1), opacity .2s'; view.style.transform = 'translate3d(0,0,0)'; view.style.opacity = '1';
+      setTimeout(() => { resetView(); view.style.willChange = ''; }, 230);
+    }
   }, { passive: true });
+  document.addEventListener('touchcancel', () => { if (g && g.lock === 'h') resetView(); g = null; }, { passive: true });
+
+  // ---------- ⋯ menu (top right), like the Claude app ----------
+  const topMenu = $('#top-menu'), topBack = $('#top-menu-back');
+  function topMenuItems() {
+    const it = (act, label, danger) => `<button role="menuitem" data-tm="${act}" class="${danger ? 'danger' : ''}">${label}</button>`;
+    const out = [];
+    const cur = chatId && data.chats[chatId];
+    if (ui.view === 'ask' && projView && projView !== 'list') { const f = folder(projView); if (f) out.push(it('folder-chat', '✦ New chat about this bid'), it('folder-bid', '✎ Open bid'), it('folder-files', '📎 Add files'), it('folder-pin', f.pinned ? 'Unpin folder' : '📌 Pin folder')); }
+    else if (ui.view === 'ask' && cur && !projView) out.push(it('chat-rename', '✎ Rename chat'), it('chat-move', '📁 Move to a bid folder'), it('chat-copy', '⧉ Copy whole chat'), it('chat-del', '🗑 Delete chat', true));
+    else if (COLLECTIONS[ui.view]) out.push(it('add', `＋ Add ${COLLECTIONS[ui.view].label.replace(/s$/, '').toLowerCase()}`));
+    if (out.length) out.push('<hr>');
+    out.push(it('new-chat', '✦ New chat'), it('folders', '📁 Bid folders'), it('opps', '☷ Opportunities and more'), it('latest', '↻ Get the latest version'), it('export', '⤓ Export backup'), it('signout', 'Sign out'));
+    return out.join('');
+  }
+  function openTopMenu() { topMenu.innerHTML = topMenuItems(); topMenu.hidden = false; topBack.hidden = false; requestAnimationFrame(() => topMenu.classList.add('show')); }
+  function closeTopMenu() { if (topMenu.hidden) return; topMenu.classList.remove('show'); topMenu.hidden = true; topBack.hidden = true; }
+  topBack.addEventListener('click', closeTopMenu);
+  topMenu.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-tm]'); if (!b) return; const a = b.dataset.tm; closeTopMenu();
+    const cur = chatId && data.chats[chatId];
+    if (a === 'chat-rename' && cur) { const n = prompt('Rename this chat', cur.title || ''); if (n && n.trim()) { await saveDoc('chats', chatId, { ...cur, title: n.trim().slice(0, 80) }); render(); } }
+    else if (a === 'chat-move' && cur) { const btn = document.createElement('button'); btn.dataset.chatMove = chatId; btn.hidden = true; document.body.appendChild(btn); btn.click(); btn.remove(); }
+    else if (a === 'chat-copy' && cur) { const txt = (cur.messages || []).map((m) => (m.role === 'user' ? 'You: ' : 'Claude: ') + m.text).join('\n\n'); navigator.clipboard?.writeText(txt).then(() => toast('Chat copied'), () => toast('Could not copy')); }
+    else if (a === 'chat-del' && cur) { if (confirm('Delete this chat?')) { await removeDoc('chats', chatId); chatId = null; render(); } }
+    else if (a === 'folder-chat') { chatId = null; chatProject = projView; askFocus = null; chatFiles = []; projView = null; render(); }
+    else if (a === 'folder-bid') { const f = folder(projView); if (f) openForm('bids', f.bidId); }
+    else if (a === 'folder-files') { const f = $('#proj-file'); if (f) f.click(); }
+    else if (a === 'folder-pin') { const f = folder(projView); if (f) { await saveFolder(projView, { pinned: !f.pinned }); render(); } }
+    else if (a === 'add') openForm(ui.view);
+    else if (a === 'new-chat') { chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); }
+    else if (a === 'folders') { projView = 'list'; go('ask'); }
+    else if (a === 'opps') go('more');
+    else if (a === 'latest') { const r = document.createElement('button'); r.dataset.action = 'reload'; r.hidden = true; document.body.appendChild(r); r.click(); r.remove(); }
+    else if (a === 'export') exportData();
+    else if (a === 'signout') location.href = '/__logout';
+  });
 
   // ---------- Boot ----------
   $('#today').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });

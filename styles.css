@@ -494,5 +494,9 @@ body.dr-open .drawer-back { opacity: 1; }
 }
 
 /* Speed: cards and messages that are off screen are not laid out or painted until you scroll to them. */
-.cards > .card, .chatwrap .msg, .pc-row, .pf-row, .dr-chat { content-visibility: auto; contain-intrinsic-size: auto 92px; }
+.cards > .card, .chatwrap .msg, .pc-row, .pf-row { content-visibility: auto; contain-intrinsic-size: auto 92px; }
 .chatwrap .msg { contain-intrinsic-size: auto 120px; }
+/* Menu items keep their full height and the menu scrolls, instead of squeezing rows to fit the screen. */
+.drawer > * { flex-shrink: 0; }
+.dr-chat { line-height: 1.35; padding: 9px 10px; }
+.dr-foot .dr-item span { color: var(--text); font-size: 15px; }

@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-16';
+  const APP_VERSION = '2026.11.23-17';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -796,7 +796,7 @@
     } finally { numbering = false; }
   }
   const curProjectId = () => { const c = chatId && data.chats && data.chats[chatId]; const id = c ? c.projectId : chatProject; return folder(id) ? id : null; };
-  const ago = (iso) => { const d = new Date(iso || 0), s = (Date.now() - d) / 1000; if (!iso || isNaN(d)) return ''; if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`; if (s < 86400) return `${Math.round(s / 3600)} hours ago`; if (s < 604800) return `${Math.round(s / 86400)} days ago`; return `${Math.round(s / 604800)} weeks ago`; };
+  const ago = (iso) => { const d = new Date(iso || 0), s = (Date.now() - d) / 1000; if (!iso || isNaN(d)) return ''; if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`; const n = (v, u) => `${v} ${u}${v === 1 ? '' : 's'} ago`; if (s < 86400) return n(Math.round(s / 3600), 'hour'); if (s < 604800) return n(Math.round(s / 86400), 'day'); return n(Math.round(s / 604800), 'week'); };
   const dueTxt = (o) => o && o.due ? `Due ${new Date(String(o.due).slice(0, 10) + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${o.dueTime ? ' ' + o.dueTime : ''}` : 'No due date';
   function projPayload(pid) {
     const f = folder(pid); if (!f) return null;

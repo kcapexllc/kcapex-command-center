@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-13';
+  const APP_VERSION = '2026.11.22-14';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -713,8 +713,9 @@
       <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="icon-btn attach" data-action="chat-attach" aria-label="Attach a PDF or photo" title="Attach a PDF or photo">📎</button>
-        <textarea id="ask-in" placeholder="Message Claude, or paste a screenshot or PDF…" rows="1">${esc(chatDraft)}</textarea>
+        <textarea id="ask-in" placeholder="Message Claude…" rows="1">${esc(chatDraft)}</textarea>
         ${chatBusy ? '<button class="btn" data-action="chat-stop">Stop</button>' : '<button class="btn primary" data-action="ask" id="ask-btn" aria-label="Send">Send</button>'}</div>
+        <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>📎</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
         <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
         <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
   }
@@ -819,6 +820,10 @@
     throw new Error(`${f.name}: attach a PDF, Word file, text file or photo`);
   }
 
+  function attachHelp() {
+    const el = $('#attach-help'); if (el) { el.hidden = false; el.scrollIntoView({ block: 'nearest' }); }
+    else toast('iPhone can’t paste PDFs into apps like this. Tap 📎, then Choose Files.');
+  }
   async function readFiles(fileList) {
     const room = MAX_FILES - chatFiles.length;
     if (room <= 0) { toast(`Up to ${MAX_FILES} files per message. Send these first, then attach more.`); return; }
@@ -1095,15 +1100,23 @@
   document.addEventListener('paste', (e) => {
     if (e.target.id !== 'ask-in' && e.target.id !== 'ask-home') return;
     const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
-    if (!files.length) return;
+    if (!files.length) {
+      // iPhone only hands websites pasted text and pictures. A PDF copied from Files arrives as nothing (or as its
+      // file name), so explain the way that works.
+      const t = (e.clipboardData?.getData('text/plain') || '').trim();
+      if (!t || /^[^\n]*\.(pdf|docx?|xlsx?)$/im.test(t) && t.split('\n').every((l) => /\.(pdf|docx?|xlsx?)\s*$/i.test(l))) {
+        e.preventDefault(); attachHelp();
+      }
+      return;
+    }
     e.preventDefault(); if (ui.view !== 'ask') go('ask'); readFiles(files);
   });
   document.addEventListener('dragover', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && [...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); w.classList.add('drop'); } });
   document.addEventListener('dragleave', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && !w.contains(e.relatedTarget)) w.classList.remove('drop'); });
   document.addEventListener('drop', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (!w) return; e.preventDefault(); w.classList.remove('drop'); if (e.dataTransfer.files.length) readFiles([...e.dataTransfer.files]); });
-  document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' && matchMedia('(max-width: 899px)').matches) document.body.classList.add('typing'); });
+  document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' && matchMedia('(max-width: 899px)').matches) document.body.classList.add('kc-typing'); });
   // Wait a moment before the tab bar comes back, so a tap on Send isn't caught by the bar sliding in.
-  document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('typing'); }, 350); });
+  document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('kc-typing'); }, 350); });
   document.addEventListener('change', (e) => { if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));

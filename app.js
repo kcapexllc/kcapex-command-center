@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-9';
+  const APP_VERSION = '2026.11.22-12';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -642,7 +642,6 @@
     'Which subs fit my open bids?',
     'Draft an award status follow-up email for my oldest submitted bid.',
   ];
-  const MAX_FILES_BYTES = 4 * 1024 * 1024;
   const curMsgs = () => live.msgs || (chatId && data.chats && data.chats[chatId] ? data.chats[chatId].messages || [] : []);
 
   // Small, safe Markdown renderer: everything is escaped first, then a known set of formats is added.
@@ -706,17 +705,17 @@
       <button class="btn" data-action="chat-new" ${chatBusy ? 'disabled' : ''}>＋ New chat</button></div>`;
     const listHtml = showChats ? `<div class="chat-list">${all.length ? all.map((c) => `<div class="chat-item ${c.id === chatId ? 'on' : ''}"><button class="ci-open" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(new Date(c.updatedAt || Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${(c.messages || []).length} messages</span></button><button class="ci-act" data-chat-rename="${esc(c.id)}" title="Rename">✎</button><button class="ci-act" data-chat-del="${esc(c.id)}" title="Delete">🗑</button></div>`).join('') : '<div class="tempty">No saved chats yet.</div>'}</div>` : '';
     const empty = `<div class="chat-hello"><div class="spark">${icon('ask')}</div><h2>How can I help, Kobe?</h2>
-      <p>I can see your bids, awards, invoices, subs and deadlines. Attach a solicitation or photo, ask me to search the web, draft an email, or update a record.</p>
+      <p>I can see your bids, awards, invoices, subs and deadlines. Attach a solicitation package (PDFs, Word files, photos), ask me to search the web, draft an email, or update a record.</p>
       <div class="chips">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
     const focus = askFocus ? `<div class="focus-chip">Talking about bid <b>${esc(askFocus.sol || askFocus.title || '')}</b> <button data-action="chat-unfocus" aria-label="Stop focusing on this bid">✕</button></div>` : '';
-    const files = chatFiles.length ? `<div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.type === 'application/pdf' ? '📄' : '🖼'} ${esc(f.name)} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
+    const files = chatFiles.length ? `<div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.pending ? '⏳' : f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.pending ? ' <em>reading…</em>' : f.label ? ` <em>${esc(f.label)}</em>` : ''} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
     return `<div class="chatwrap">${head}${listHtml}
       <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="icon-btn attach" data-action="chat-attach" aria-label="Attach a PDF or photo" title="Attach a PDF or photo">📎</button>
         <textarea id="ask-in" placeholder="Message Claude, or paste a screenshot or PDF…" rows="1">${esc(chatDraft)}</textarea>
         ${chatBusy ? '<button class="btn" data-action="chat-stop">Stop</button>' : '<button class="btn primary" data-action="ask" id="ask-btn" aria-label="Send">Send</button>'}</div>
-        <input type="file" id="chat-file" accept="application/pdf,image/*" multiple hidden />
+        <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
         <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
   }
 
@@ -760,32 +759,91 @@
     if (!chatId) return;
     const prev = (data.chats || {})[chatId] || {};
     const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
-    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}) })).slice(-60);
+    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}) })).slice(-60);
     const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean };
     data.chats = { ...(data.chats || {}), [chatId]: body };
     await saveDoc('chats', chatId, body);
   }
 
+  // ----- Attachments -----
+  // PDFs: long ones with real text go to Claude as text (cheaper, no size limit); scanned or short ones go
+  // as the PDF itself so Claude can see the pages. Word files go as text. Photos are shrunk to 1600px.
+  // Everything uploads in 3 MB pieces first, so phone-sized requests never hit the function limit.
+  const NATIVE_MAX = 20 * 1024 * 1024, TEXT_MAX = 450000, PIECE = 4000000;
+  const libs = {};
+  function loadScript(url) { return libs[url] || (libs[url] = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = url; sc.onload = res; sc.onerror = () => { delete libs[url]; rej(new Error('Could not load the file reader. Check your connection.')); }; document.head.appendChild(sc); })); }
+  async function pdfjs() {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return window.pdfjsLib;
+  }
+  const fmtMB = (n) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+  const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+  const isDocx = (f) => /\.docx$/i.test(f.name) || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const isText = (f) => /^text\//.test(f.type) || /\.(txt|csv|md)$/i.test(f.name);
+
+  async function prepFile(f) {
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+      let pages = 0, text = '';
+      try {
+        const lib = await pdfjs(); const doc = await lib.getDocument({ data: await f.arrayBuffer() }).promise; pages = doc.numPages;
+        for (let i = 1; i <= Math.min(pages, 400) && text.length < 320000; i++) {
+          const tc = await (await doc.getPage(i)).getTextContent();
+          text += `\n--- Page ${i} ---\n` + tc.items.map((it) => it.str + (it.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+\n/g, '\n');
+        }
+      } catch (e) { if (f.size > NATIVE_MAX) throw new Error(`${f.name}: ${e.message}`); }
+      const textual = pages && text.replace(/--- Page \d+ ---|\s/g, '').length / pages > 250;
+      const asText = { name: f.name, type: 'text/plain', text: text.slice(0, 300000), pages, label: `${pages} pages, read as text`, note: `Text pulled from the PDF ${f.name} (${pages} pages).${text.length > 300000 ? ' Cut off after about 300,000 characters.' : ''}` };
+      if (textual && (pages > 10 || f.size > 8 * 1048576)) return asText;
+      if (f.size <= NATIVE_MAX && (!pages || pages <= 100)) return { name: f.name, type: 'application/pdf', blob: f, pages, label: pages ? `${pages} page${pages === 1 ? '' : 's'}` : fmtMB(f.size) };
+      if (textual) return asText;
+      throw new Error(`${f.name} is a scanned PDF too large to send (${pages} pages, ${fmtMB(f.size)}). Split it into parts under 100 pages and 20 MB.`);
+    }
+    if (isDocx(f)) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+      const r = await window.mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+      return { name: f.name, type: 'text/plain', text: r.value.slice(0, 300000), label: 'Word file, read as text', note: `Text of the Word document ${f.name}.` };
+    }
+    if (isText(f)) { const t = await f.text(); return { name: f.name, type: 'text/plain', text: t.slice(0, 300000), label: 'text', note: `Contents of ${f.name}.` }; }
+    if (/^image\//.test(f.type)) {
+      const url = URL.createObjectURL(f);
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; }).catch(() => null);
+      URL.revokeObjectURL(url);
+      if (!img) throw new Error(`Couldn't read ${f.name}`);
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return { name: f.name || 'photo.jpg', type: 'image/jpeg', data: cv.toDataURL('image/jpeg', 0.85).split(',')[1], label: 'photo' };
+    }
+    throw new Error(`${f.name}: attach a PDF, Word file, text file or photo`);
+  }
+
   async function readFiles(fileList) {
     for (const f of fileList) {
-      if (f.type === 'application/pdf') {
-        if (f.size > MAX_FILES_BYTES) { toast(`${f.name} is over 4 MB. Try a smaller PDF.`); continue; }
-        const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
-        chatFiles.push({ name: f.name, type: f.type, data: b64 });
-      } else if (/^image\//.test(f.type)) {
-        // Photos are shrunk to 1600px so they upload fast from a phone.
-        const url = URL.createObjectURL(f);
-        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; }).catch(() => null);
-        URL.revokeObjectURL(url);
-        if (!img) { toast(`Couldn't read ${f.name}`); continue; }
-        const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const cv = document.createElement('canvas');
-        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        chatFiles.push({ name: f.name || 'photo.jpg', type: 'image/jpeg', data: cv.toDataURL('image/jpeg', 0.85).split(',')[1] });
-      } else toast(`${f.name}: attach a PDF or a photo`);
+      const ph = { name: f.name || 'file', pending: true }; chatFiles.push(ph); render();
+      try {
+        const a = await prepFile(f); const i = chatFiles.indexOf(ph); if (i < 0) continue; // removed while reading
+        const bin = chatFiles.reduce((n, x) => n + (x.blob ? x.blob.size : x.data ? x.data.length * 0.75 : 0), 0) + (a.blob ? a.blob.size : 0);
+        const txt = chatFiles.reduce((n, x) => n + (x.text ? x.text.length : 0), 0) + (a.text ? a.text.length : 0);
+        if (bin > NATIVE_MAX || txt > TEXT_MAX) { chatFiles.splice(i, 1); toast(`${f.name} would put this message over the limit. Send it in the next message.`); }
+        else chatFiles[i] = a;
+      } catch (e) { chatFiles = chatFiles.filter((x) => x !== ph); toast(e.message || `Couldn't read ${f.name}`); }
+      render();
     }
-    const total = chatFiles.reduce((s, f) => s + f.data.length * 0.75, 0);
-    if (total > MAX_FILES_BYTES) { chatFiles.pop(); toast('Attachments are limited to 4 MB per message.'); }
-    render(); const t = $('#ask-in'); if (t) t.focus();
+    const t = $('#ask-in'); if (t) t.focus();
+  }
+
+  async function uploadFile(a, onPiece) {
+    const payload = a.blob ? await toB64(a.blob) : a.text != null ? a.text : a.data;
+    const total = Math.max(1, Math.ceil(payload.length / PIECE)); let id = null;
+    for (let i = 0; i < total; i++) {
+      onPiece && onPiece(i, total);
+      const r = await fetch('/api/upload', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, index: i, total, name: a.name, type: a.type, pages: a.pages, note: a.note, data: payload.slice(i * PIECE, (i + 1) * PIECE) }) });
+      if (r.status === 401) { location.reload(); throw new Error('Signed out'); }
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Upload failed (error ${r.status}).`);
+      id = j.id;
+    }
+    return { id, name: a.name, type: a.type, label: a.label };
   }
 
   async function askClaude(preset, retry) {
@@ -796,36 +854,47 @@
     if (ui.view !== 'ask') { showChats = false; go('ask'); }
     if (!chatId) chatId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     let msgs = [...curMsgs()];
-    let files = chatFiles;
-    if (retry) { if (msgs.length && msgs[msgs.length - 1].role === 'assistant') msgs.pop(); files = live.retryFiles || []; }
-    else { msgs.push({ role: 'user', text: q || 'Please look at the attached file.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }); }
+    if (chatFiles.some((f) => f.pending)) { toast('Still reading your file. One moment.'); return; }
+    const files = retry ? [] : chatFiles;
+    let userMsg = null;
+    if (retry) { if (msgs.length && msgs[msgs.length - 1].role === 'assistant') msgs.pop(); }
+    else { userMsg = { role: 'user', text: q || 'Please look at the attached files.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }; msgs.push(userMsg); }
     const reply = { role: 'assistant', text: '', tools: [] }; msgs.push(reply);
-    live.msgs = msgs; live.retryFiles = files; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Reading your file…' : 'Thinking…';
+    live.msgs = msgs; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Uploading your files…' : 'Thinking…';
     const ctrl = new AbortController(); chatBusy = ctrl;
     render(); scrollChat();
-    // Only the newest question carries its attachments; earlier turns send just the file names.
-    const send = msgs.slice(0, -1).map((m, i, arr) => ({ role: m.role, text: m.text, fileNames: m.fileNames, ...(i === arr.length - 1 && files.length ? { files } : {}) }));
     let wrote = false;
     try {
-      const r = await fetch('/api/chat', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: send, snapshot: snapshot() }) });
-      if (r.status === 401) { location.reload(); return; }
-      if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})); throw new Error(j.error || (r.status === 413 ? 'That attachment is too large.' : `Claude could not answer (error ${r.status}).`)); }
-      const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', done = false;
-      while (!done) {
-        const { value, done: end } = await rd.read(); if (end) break;
-        buf += dec.decode(value, { stream: true }); let nl;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl); buf = buf.slice(nl + 1); if (!line.trim()) continue;
-          let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
-          if (ev.t === 'text') { reply.text += ev.d; chatStatus = 'Writing…'; }
-          else if (ev.t === 'status') chatStatus = ev.d;
-          else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; }
-          else if (ev.t === 'error') reply.error = ev.d;
-          else if (ev.t === 'done') done = true;
-          paintLive();
-        }
+      // Files upload first, then stay with the conversation so follow-up questions can use them too.
+      if (files.length) {
+        const refs = [];
+        for (const [n, f] of files.entries()) refs.push(await uploadFile(f, (i, t) => { chatStatus = `Uploading ${files.length > 1 ? `file ${n + 1} of ${files.length}` : f.name}${t > 1 ? ` (part ${i + 1} of ${t})` : ''}…`; paintLive(); }));
+        userMsg.fileRefs = refs; chatStatus = 'Reading your files…'; paintLive();
       }
-      if (!done && !reply.error) reply.error = 'The answer was cut off (Claude ran out of time). Ask it to continue.';
+      const send = msgs.slice(0, -1).map((m) => ({ role: m.role, text: m.text, fileNames: m.fileNames, fileRefs: m.fileRefs }));
+      // Claude runs in the background on the server (no 30-second limit) and the app checks progress about
+      // once a second, so long answers and big solicitation packages come through in full.
+      const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: send, snapshot: snapshot() }) });
+      if (st.status === 401) { location.reload(); return; }
+      if (!st.ok) throw new Error(`Claude could not start (error ${st.status}).`);
+      const sleep = (ms) => new Promise((res, rej) => { const t = setTimeout(res, ms); ctrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(Object.assign(new Error('Stopped'), { name: 'AbortError' })); }, { once: true }); });
+      let lastChange = Date.now(), lastUpdated = 0, misses = 0;
+      for (;;) {
+        await sleep(900);
+        let j;
+        try { const r = await fetch('/api/job?id=' + jobId, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal }); if (r.status === 401) { location.reload(); return; } j = await r.json(); misses = 0; }
+        catch (e) { if (e.name === 'AbortError') throw e; if (++misses > 20) throw new Error('Lost touch with Claude. Check your connection.'); continue; }
+        if (j.pending) { if (Date.now() - lastChange > 60000) throw new Error('Claude did not start. Try again.'); continue; }
+        if (j.updated !== lastUpdated) { lastUpdated = j.updated; lastChange = Date.now(); }
+        else if (Date.now() - lastChange > 120000) throw new Error('Claude stopped responding. Try again.');
+        reply.text = j.text || ''; reply.tools = j.tools || [];
+        if (reply.tools.some((t) => t.write)) wrote = true;
+        chatStatus = reply.text ? 'Writing…' : (j.status || 'Thinking…');
+        if (j.error) reply.error = j.error;
+        paintLive();
+        if (j.done) break;
+      }
     } catch (e) {
       reply.error = e.name === 'AbortError' ? 'Stopped.' : (e.message && !/fetch|network/i.test(e.message) ? e.message : 'Could not reach Claude. Check your connection.');
     }
@@ -1022,7 +1091,8 @@
   document.addEventListener('dragleave', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (w && !w.contains(e.relatedTarget)) w.classList.remove('drop'); });
   document.addEventListener('drop', (e) => { const w = e.target.closest && e.target.closest('.chatwrap'); if (!w) return; e.preventDefault(); w.classList.remove('drop'); if (e.dataTransfer.files.length) readFiles([...e.dataTransfer.files]); });
   document.addEventListener('focusin', (e) => { if (e.target.id === 'ask-in' && matchMedia('(max-width: 899px)').matches) document.body.classList.add('typing'); });
-  document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') document.body.classList.remove('typing'); });
+  // Wait a moment before the tab bar comes back, so a tap on Send isn't caught by the bar sliding in.
+  document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('typing'); }, 350); });
   document.addEventListener('change', (e) => { if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));

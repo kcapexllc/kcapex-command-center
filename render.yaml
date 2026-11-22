@@ -1,0 +1,26 @@
+# Render Blueprint: one free web service and one free Postgres database.
+databases:
+  - name: kcapex-command-center-db
+    plan: free
+    region: ohio
+
+services:
+  - type: web
+    name: kcapex-command-center
+    runtime: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 60
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kcapex-command-center-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MCP_TOKEN
+        generateValue: true

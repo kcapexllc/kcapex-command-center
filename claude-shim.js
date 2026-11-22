@@ -5,7 +5,7 @@
    report as unavailable, and the page hides them. */
 (function () {
   'use strict';
-  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits'];
+  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
   var CACHE_KEY = 'kc.pipeline.cache.v1';
   var POLL_MS = 20000;
 
@@ -141,6 +141,7 @@
     }
   };
 
+  window.kcPull = pull;
   setInterval(function () { if (document.visibilityState === 'visible') pull(); }, POLL_MS);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pull(); });
   window.addEventListener('online', function () { pull(); });

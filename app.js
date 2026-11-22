@@ -37,8 +37,8 @@
   const safeUrl = (u) => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '');
 
   // ---------- Data (synced database) ----------
-  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits'];
-  const APP_VERSION = '2026.11.22-4';
+  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
+  const APP_VERSION = '2026.11.22-5';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -351,7 +351,7 @@
     const c = COLLECTIONS[ui.view];
     $('#view-title').textContent = TITLES[ui.view] || (c ? c.label : '');
     $('#fab').hidden = !(c || ui.view === 'dashboard');
-    const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null;
+    const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null, keepAsk = ae && ae.id === 'ask-in';
     const el = $('#view');
     try {
       if (ui.view === 'dashboard') el.innerHTML = renderDashboard();
@@ -362,6 +362,7 @@
       else if (ui.view === 'ask') { el.innerHTML = renderAsk(); }
       else el.innerHTML = renderList(ui.view);
     } catch (err) { console.error(err); el.innerHTML = `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
+    if (keepAsk) { const s = $('#ask-in'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
   }
   let raf = 0; const scheduleRender = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); };
@@ -622,8 +623,11 @@
       ${items.length ? `<div class="cards">${items.map((x) => oppLine(x, x._src)).join('')}</div>` : '<div class="empty">No open quick-turn bids right now.</div>'}`;
   }
 
-  const chat = [];
-  let askFocus = null;
+  // ---------- Claude chat ----------
+  // Works like the Claude app: streamed answers, saved conversations (shared across devices),
+  // PDFs and photos, web search, and changes to records when asked.
+  let askFocus = null, chatId = null, chatBusy = null, chatDraft = '', chatFiles = [], chatStatus = '', showChats = false;
+  const live = { msgs: null }; // the conversation on screen while it streams
   const QUICK_ASKS = [
     'What should I work on today?',
     'Which bids are due this week, and what does each still need?',
@@ -632,18 +636,86 @@
     'Which subs fit my open bids?',
     'Draft an award status follow-up email for my oldest submitted bid.',
   ];
+  const MAX_FILES_BYTES = 4 * 1024 * 1024;
+  const curMsgs = () => live.msgs || (chatId && data.chats && data.chats[chatId] ? data.chats[chatId].messages || [] : []);
+
+  // Small, safe Markdown renderer: everything is escaped first, then a known set of formats is added.
+  function md(src) {
+    const inline = (s) => esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<i>$2</i>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`)
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, p, u) => `${p}<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+    const lines = String(src || '').replace(/\r/g, '').split('\n');
+    let out = '', i = 0;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (/^```/.test(l)) { const buf = []; i++; while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]); i++; out += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue; }
+      if (/^\s*\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+        const cells = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+        let t = `<div class="tblwrap"><table><tr>${cells(l).map((c) => `<th>${inline(c)}</th>`).join('')}</tr>`; i += 2;
+        while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) t += `<tr>${cells(lines[i++]).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`;
+        out += t + '</table></div>'; continue;
+      }
+      const h = l.match(/^(#{1,6})\s+(.*)$/); if (h) { out += `<h${Math.min(h[1].length + 2, 6)}>${inline(h[2])}</h${Math.min(h[1].length + 2, 6)}>`; i++; continue; }
+      if (/^\s*([-*•]|\d+[.)])\s+/.test(l)) {
+        const ordered = /^\s*\d+[.)]\s+/.test(l); let t = ordered ? '<ol>' : '<ul>';
+        while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) t += `<li>${inline(lines[i++].replace(/^\s*([-*•]|\d+[.)])\s+/, ''))}</li>`;
+        out += t + (ordered ? '</ol>' : '</ul>'); continue;
+      }
+      if (/^\s*(---|\*\*\*)\s*$/.test(l)) { out += '<hr>'; i++; continue; }
+      if (/^>\s?/.test(l)) { const buf = []; while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, '')); out += `<blockquote>${inline(buf.join(' '))}</blockquote>`; continue; }
+      if (!l.trim()) { i++; continue; }
+      const buf = []; while (i < lines.length && lines[i].trim() && !/^(```|#{1,6}\s|\s*([-*•]|\d+[.)])\s+|>|\s*\|)/.test(lines[i])) buf.push(lines[i++]);
+      if (!buf.length) buf.push(lines[i++]);
+      out += `<p>${buf.map(inline).join('<br>')}</p>`;
+    }
+    return out;
+  }
+
   function askBox(home) {
-    return `<div class="${home ? 'panel askhome' : ''}">${home ? '<h2>Ask Claude</h2>' : ''}
-      <div class="ask-row"><textarea id="ask-in" placeholder="Ask Claude about your bids, awards, subs or deadlines…" rows="2"></textarea><button class="btn primary" data-action="ask" id="ask-btn">Ask</button></div>
+    if (!home) return '';
+    return `<div class="panel askhome"><h2>Ask Claude</h2>
+      <div class="ask-row"><textarea id="ask-home" placeholder="Ask Claude anything: bids, pricing, emails, a solicitation…" rows="2"></textarea><button class="btn primary" data-action="ask-home">Ask</button></div>
       <div class="chips" style="margin-top:8px">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
   }
-  function renderAsk() {
-    return `<p style="color:var(--muted);margin:0 0 10px">Ask about your bids, awards, subs and deadlines. Claude reads a snapshot of what's in this app.</p>
-      <div class="chat" id="chat">${chat.length ? chat.map((m) => `<div class="msg ${m.role}">${esc(m.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#+\s*/gm, '')}${m.role === 'assistant' && m.text !== 'Thinking…' ? '<button class="copy" data-copy="1">Copy</button>' : ''}</div>`).join('') : '<div class="tempty">Ask anything about your command center, or tap a question below. Claude can also draft emails to contracting officers and subs.</div>'}</div>
-      ${askBox(false)}${chat.length ? '<p style="margin-top:8px"><button class="btn" data-action="ask-clear">New conversation</button></p>' : ''}`;
+
+  function msgHtml(m, idx, last) {
+    if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>`;
+    const streaming = last && chatBusy;
+    const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
+    const body = m.text ? md(m.text) : (streaming ? '' : '<p>(no answer)</p>');
+    return `<div class="msg assistant" ${streaming ? 'id="live-msg"' : ''}>${acts ? `<div class="acts">${acts}</div>` : ''}<div class="mbody">${body}</div>
+      ${streaming ? `<div class="typing"><span></span><span></span><span></span> <em id="live-status">${esc(chatStatus || 'Thinking…')}</em></div>` : ''}
+      ${m.error ? `<div class="merr">${esc(m.error)}</div>` : ''}
+      ${!streaming && m.text ? `<div class="mtools"><button class="copy" data-copy="${idx}">Copy</button>${last && !m.error ? '' : ''}</div>` : ''}${!streaming && last && m.error ? '<div class="mtools"><button class="copy" data-action="chat-retry">Try again</button></div>' : ''}</div>`;
   }
+
+  function renderAsk() {
+    const all = Object.entries(data.chats || {}).map(([id, c]) => ({ id, ...c })).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const msgs = curMsgs(); const cur = chatId && data.chats ? data.chats[chatId] : null;
+    const head = `<div class="chat-head"><button class="btn" data-action="chat-list">☰ Chats${all.length ? ` <span class="n">${all.length}</span>` : ''}</button>
+      <div class="chat-title">${esc((cur && cur.title) || (msgs.length ? 'New chat' : ''))}</div>
+      <button class="btn" data-action="chat-new" ${chatBusy ? 'disabled' : ''}>＋ New chat</button></div>`;
+    const listHtml = showChats ? `<div class="chat-list">${all.length ? all.map((c) => `<div class="chat-item ${c.id === chatId ? 'on' : ''}"><button class="ci-open" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(new Date(c.updatedAt || Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${(c.messages || []).length} messages</span></button><button class="ci-act" data-chat-rename="${esc(c.id)}" title="Rename">✎</button><button class="ci-act" data-chat-del="${esc(c.id)}" title="Delete">🗑</button></div>`).join('') : '<div class="tempty">No saved chats yet.</div>'}</div>` : '';
+    const empty = `<div class="chat-hello"><div class="spark">${icon('ask')}</div><h2>How can I help, Kobe?</h2>
+      <p>I can see your bids, awards, invoices, subs and deadlines. Attach a solicitation or photo, ask me to search the web, draft an email, or update a record.</p>
+      <div class="chips">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
+    const focus = askFocus ? `<div class="focus-chip">Talking about bid <b>${esc(askFocus.sol || askFocus.title || '')}</b> <button data-action="chat-unfocus" aria-label="Stop focusing on this bid">✕</button></div>` : '';
+    const files = chatFiles.length ? `<div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.type === 'application/pdf' ? '📄' : '🖼'} ${esc(f.name)} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
+    return `<div class="chatwrap">${head}${listHtml}
+      <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
+      <div class="composer">${focus}${files}
+        <div class="ask-row"><button class="icon-btn attach" data-action="chat-attach" aria-label="Attach a PDF or photo" title="Attach a PDF or photo">📎</button>
+        <textarea id="ask-in" placeholder="Message Claude…" rows="1">${esc(chatDraft)}</textarea>
+        ${chatBusy ? '<button class="btn" data-action="chat-stop">Stop</button>' : '<button class="btn primary" data-action="ask" id="ask-btn" aria-label="Send">Send</button>'}</div>
+        <input type="file" id="chat-file" accept="application/pdf,image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+        <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
+  }
+
   function snapshot() {
-    const o = liveOpps(), pick = (x) => ({ sol: x.sol, title: x.title, agency: x.agency, status: x.status, due: x.due, price: oppPrice(x) || null, method: methodTag(x.method), quotes: quoteSummary(x) || null, approval: needsApproval(x) ? approvalTier(x) : null });
+    const o = liveOpps(), pick = (x) => ({ id: x.id, sol: x.sol, title: x.title, agency: x.agency, status: x.status, due: x.due, price: oppPrice(x) || null, method: methodTag(x.method), quotes: quoteSummary(x) || null, approval: needsApproval(x) ? approvalTier(x) : null });
     return {
       today: isoDay(), fiscalYear: 'FY27 runs 1 Oct 2026 to 30 Sep 2027', goals: GOALS,
       working: o.filter((x) => ['reviewing', 'bid'].includes(x.status) && !isPastOpp(x)).map(pick),
@@ -651,25 +723,112 @@
       foundOpen: o.filter((x) => (x.status || 'found') === 'found' && !isPastOpp(x)).slice(0, 40).map(pick),
       needsCloseOut: o.filter((x) => ['found', 'reviewing', 'bid'].includes(x.status || 'found') && isPastOpp(x)).length,
       lost: o.filter((x) => x.status === 'lost').map((x) => ({ sol: x.sol, title: x.title, ours: oppPrice(x) || null, winner: x.awardee || null, winningPrice: x.awardPrice || null })),
-      awards: awards().map((c) => ({ title: c.title, agency: c.agency, value: c.value, status: c.status, awardDate: c.awardDate, end: c.end })),
-      invoices: list('invoices').map((i) => ({ contract: (data.contracts[i.contractId] || {}).title, amount: i.amount, status: i.status, sent: i.sent })),
+      awards: Object.entries(data.contracts || {}).filter(([, c]) => c.status !== 'Cancelled').map(([id, c]) => ({ id, title: c.title, agency: c.agency, value: c.value, status: c.status, awardDate: c.awardDate, end: c.end })),
+      invoices: list('invoices').map((i) => ({ contract: (data.contracts[i.contractId] || {}).title, number: i.number, amount: i.amount, status: i.status, sent: i.sent })),
       siteVisits: list('visits').map((v) => ({ title: v.title, date: v.date, time: v.time, location: v.location, status: v.status })),
       quickTurn: quickItems().slice(0, 25).map((x) => ({ sol: x.sol, title: x.title, due: x.due, window: qtWin(x) })),
       contactsToTouch: list('contacts').filter((c) => ['cold', 'due'].includes(relState(c).k)).slice(0, 30).map((c) => ({ name: c.name, agency: c.agency, role: c.role })),
       subs: list('subs').map((x) => ({ company: x.company, trade: x.trade, area: x.area, rating: x.rating })),
+      focusBid: askFocus,
     };
   }
-  async function askClaude(preset) {
-    const inp = $('#ask-in'); const q = (preset || (inp && inp.value) || '').trim(); if (!q) return;
-    if (ui.view !== 'ask') go('ask');
-    chat.push({ role: 'user', text: q }); chat.push({ role: 'assistant', text: 'Thinking…' }); render();
+
+  function scrollChat() { const c = $('#chat'); if (c) c.scrollTop = c.scrollHeight; }
+  let liveRaf = 0;
+  function paintLive() {
+    cancelAnimationFrame(liveRaf);
+    liveRaf = requestAnimationFrame(() => {
+      if (ui.view !== 'ask') return;
+      const msgs = curMsgs(), m = msgs[msgs.length - 1], el = $('#live-msg');
+      if (!el || !m) return render();
+      const c = $('#chat'); const atBottom = c && c.scrollHeight - c.scrollTop - c.clientHeight < 80;
+      el.querySelector('.mbody').innerHTML = md(m.text);
+      const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
+      let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
+      const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
+      if (atBottom) scrollChat();
+    });
+  }
+
+  async function saveChat(msgs) {
+    if (!chatId) return;
+    const prev = (data.chats || {})[chatId] || {};
+    const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
+    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}) })).slice(-60);
+    const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean };
+    data.chats = { ...(data.chats || {}), [chatId]: body };
+    await saveDoc('chats', chatId, body);
+  }
+
+  async function readFiles(fileList) {
+    for (const f of fileList) {
+      if (f.type === 'application/pdf') {
+        if (f.size > MAX_FILES_BYTES) { toast(`${f.name} is over 4 MB. Try a smaller PDF.`); continue; }
+        const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
+        chatFiles.push({ name: f.name, type: f.type, data: b64 });
+      } else if (/^image\//.test(f.type)) {
+        // Photos are shrunk to 1600px so they upload fast from a phone.
+        const url = URL.createObjectURL(f);
+        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; }).catch(() => null);
+        URL.revokeObjectURL(url);
+        if (!img) { toast(`Couldn't read ${f.name}`); continue; }
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        chatFiles.push({ name: f.name || 'photo.jpg', type: 'image/jpeg', data: cv.toDataURL('image/jpeg', 0.85).split(',')[1] });
+      } else toast(`${f.name}: attach a PDF or a photo`);
+    }
+    const total = chatFiles.reduce((s, f) => s + f.data.length * 0.75, 0);
+    if (total > MAX_FILES_BYTES) { chatFiles.pop(); toast('Attachments are limited to 4 MB per message.'); }
+    render(); const t = $('#ask-in'); if (t) t.focus();
+  }
+
+  async function askClaude(preset, retry) {
+    if (chatBusy) return;
+    const inp = $('#ask-in') || $('#ask-home');
+    const q = retry ? '' : (preset || (inp && inp.value) || '').trim();
+    if (!retry && !q && !chatFiles.length) return;
+    if (ui.view !== 'ask') { showChats = false; go('ask'); }
+    if (!chatId) chatId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    let msgs = [...curMsgs()];
+    let files = chatFiles;
+    if (retry) { if (msgs.length && msgs[msgs.length - 1].role === 'assistant') msgs.pop(); files = live.retryFiles || []; }
+    else { msgs.push({ role: 'user', text: q || 'Please look at the attached file.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }); }
+    const reply = { role: 'assistant', text: '', tools: [] }; msgs.push(reply);
+    live.msgs = msgs; live.retryFiles = files; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Reading your file…' : 'Thinking…';
+    const ctrl = new AbortController(); chatBusy = ctrl;
+    render(); scrollChat();
+    // Only the newest question carries its attachments; earlier turns send just the file names.
+    const send = msgs.slice(0, -1).map((m, i, arr) => ({ role: m.role, text: m.text, fileNames: m.fileNames, ...(i === arr.length - 1 && files.length ? { files } : {}) }));
+    let wrote = false;
     try {
-      const r = await fetch('/api/ask', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: chat.slice(0, -1).slice(-12).map((m) => ({ role: m.role, content: m.text })), snapshot: { ...snapshot(), focusBid: askFocus } }) });
-      const j = await r.json().catch(() => ({}));
-      chat[chat.length - 1].text = r.ok ? (j.text || '(no answer)') : (j.error || 'Claude could not answer right now.');
-    } catch (e) { chat[chat.length - 1].text = 'Could not reach Claude. Check your connection.'; }
-    if (ui.view === 'ask') { render(); const c = $('#chat'); if (c) c.scrollTop = c.scrollHeight; }
+      const r = await fetch('/api/chat', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: send, snapshot: snapshot() }) });
+      if (r.status === 401) { location.reload(); return; }
+      if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})); throw new Error(j.error || (r.status === 413 ? 'That attachment is too large.' : `Claude could not answer (error ${r.status}).`)); }
+      const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', done = false;
+      while (!done) {
+        const { value, done: end } = await rd.read(); if (end) break;
+        buf += dec.decode(value, { stream: true }); let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl); buf = buf.slice(nl + 1); if (!line.trim()) continue;
+          let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
+          if (ev.t === 'text') { reply.text += ev.d; chatStatus = 'Writing…'; }
+          else if (ev.t === 'status') chatStatus = ev.d;
+          else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; }
+          else if (ev.t === 'error') reply.error = ev.d;
+          else if (ev.t === 'done') done = true;
+          paintLive();
+        }
+      }
+      if (!done && !reply.error) reply.error = 'The answer was cut off (Claude ran out of time). Ask it to continue.';
+    } catch (e) {
+      reply.error = e.name === 'AbortError' ? 'Stopped.' : (e.message && !/fetch|network/i.test(e.message) ? e.message : 'Could not reach Claude. Check your connection.');
+    }
+    if (!reply.tools.length) delete reply.tools;
+    chatBusy = null; chatStatus = '';
+    await saveChat(msgs);
+    live.msgs = null;
+    if (wrote) { toast('Claude updated your command center'); if (window.kcPull) window.kcPull(); }
+    if (ui.view === 'ask') { render(); scrollChat(); }
   }
   function syncLine(long) {
     const m = window.kcMeta || {}; const t = (iso) => { if (!iso) return 'never'; const d = new Date(iso); return isNaN(d) ? 'never' : (isoDay(d) === isoDay() ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ') + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
@@ -792,8 +951,12 @@
   // ---------- Events ----------
   document.addEventListener('click', async (e) => {
     if (e.target.closest('[data-stop]')) return; // links inside cards
-    const qk = e.target.closest('[data-quick]'); if (qk) { askClaude(qk.dataset.quick); return; }
-    const cp = e.target.closest('[data-copy]'); if (cp) { const txt = cp.parentElement.innerText.replace(/Copy$/, '').trim(); navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
+    const qk = e.target.closest('[data-quick]'); if (qk) { if (ui.view !== 'ask') { chatId = null; askFocus = null; } askClaude(qk.dataset.quick); return; }
+    const cp = e.target.closest('[data-copy]'); if (cp) { const m = curMsgs()[Number(cp.dataset.copy)]; const txt = m ? m.text : ''; navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
+    const ch = e.target.closest('[data-chat]'); if (ch) { if (!chatBusy) { chatId = ch.dataset.chat; askFocus = null; showChats = false; render(); scrollChat(); } return; }
+    const cr = e.target.closest('[data-chat-rename]'); if (cr) { const id = cr.dataset.chatRename, c = data.chats[id]; const n = c && prompt('Rename this chat', c.title || ''); if (n && n.trim()) await saveDoc('chats', id, { ...c, title: n.trim().slice(0, 80) }); render(); return; }
+    const cd = e.target.closest('[data-chat-del]'); if (cd) { const id = cd.dataset.chatDel; if (!confirm('Delete this chat?')) return; await removeDoc('chats', id); if (chatId === id) chatId = null; render(); return; }
+    const fx = e.target.closest('[data-file-x]'); if (fx) { chatFiles.splice(Number(fx.dataset.fileX), 1); render(); return; }
     const t = e.target.closest('[data-go],[data-open],[data-filter],[data-action],[data-level],[data-elig]');
     if (!t) return;
     if (t.dataset.go) return go(t.dataset.go);
@@ -823,10 +986,16 @@
       for (const o of stale) { const { id, ...rest } = o; if (await saveDoc('opportunities', id, { ...rest, status: 'no-bid', notes: [...(Array.isArray(rest.notes) ? rest.notes : []), { t: new Date().toLocaleString(), text: 'Closed as no-bid: due date passed without a submission (phone app).' }] })) n++; }
       toast(`Closed ${n} as no-bid`);
     } else if (a === 'ask') { askClaude(); }
-    else if (a === 'ask-clear') { chat.length = 0; askFocus = null; render(); }
+    else if (a === 'ask-home') { const h = $('#ask-home'); if (h && h.value.trim()) { chatId = null; askFocus = null; askClaude(h.value.trim()); } }
+    else if (a === 'chat-new') { chatId = null; askFocus = null; showChats = false; chatFiles = []; render(); const i = $('#ask-in'); if (i) i.focus(); }
+    else if (a === 'chat-list') { showChats = !showChats; render(); }
+    else if (a === 'chat-stop') { if (chatBusy) chatBusy.abort(); }
+    else if (a === 'chat-retry') { askClaude('', true); }
+    else if (a === 'chat-unfocus') { askFocus = null; render(); }
+    else if (a === 'chat-attach') { const f = $('#chat-file'); if (f) f.click(); }
     else if (a === 'ask-bid') {
       const o = data.opportunities[editing.id]; if (!o) return; modal.close();
-      const { notes, ...rest } = o; askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
+      const { notes, ...rest } = o; chatId = null; askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
       askClaude(`Tell me about bid ${o.sol || ''} ${o.title || ''}: where it stands, what it still needs before it goes in, the risks, and the next step.`);
     }
     else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); } catch (_) { /* ignore */ } location.reload(); }
@@ -836,7 +1005,8 @@
     else if (a === 'export') exportData();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.card[data-open]')) e.target.click(); });
-  document.addEventListener('input', (e) => { if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
+  document.addEventListener('change', (e) => { if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
+  document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));
   $('#more-btn').addEventListener('click', () => go('more'));
   $('#claude-btn').addEventListener('click', () => go('ask'));
@@ -859,10 +1029,14 @@
     db = d;
     DBC.forEach((c) => d.collection(c).onSnapshot((snap) => {
       const m = {}; snap.docs.forEach((s) => { const b = s.data(); if (b && !b.deleted) m[s.id] = b; });
-      data[c] = m; $('#sync').textContent = syncLine(false); scheduleRender();
+      data[c] = m; $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
     }, () => { $('#sync').textContent = 'Offline'; }));
   });
   window.addEventListener('kc-meta', () => { $('#sync').textContent = syncLine(false); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ask-in') { e.preventDefault(); askClaude(); } });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || !['ask-in', 'ask-home'].includes(e.target.id)) return;
+    if (e.target.id === 'ask-in' && matchMedia('(pointer: coarse)').matches) return; // on phones Enter is a new line; tap Send
+    e.preventDefault(); if (e.target.id === 'ask-home') { chatId = null; askFocus = null; } askClaude();
+  });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 })();

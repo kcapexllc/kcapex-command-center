@@ -31,3 +31,7 @@ The scheduled task "KCAPEX app sync" runs every 2 hours, 6:25 AM to 10:25 PM Cen
 ## Password
 To change it: Netlify → project → Site configuration → Environment variables → edit `APP_PASSWORD` → redeploy.
 Changing it signs out every device. To sign out one device, visit `/__logout`.
+
+## Ask Claude (chat)
+
+`netlify/functions/chat.mjs` (`/api/chat`) streams Claude's answers as newline-delimited JSON. Claude gets a snapshot of the app, can search the web, read attached PDFs and photos, look up records (`app_search`), and, when asked, add notes, update a bid's status, price or due date, create tasks, add site visits and log invoices. Conversations are saved in the `chats` collection (shared across devices, not synced to the Pipeline). Keys come from Netlify's AI Gateway, or from `ANTHROPIC_API_KEY` if set; `CLAUDE_MODEL` overrides the model.

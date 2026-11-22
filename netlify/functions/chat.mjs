@@ -6,7 +6,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getStore } from "@netlify/blobs";
 import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
 
-const MODEL = process.env.CLAUDE_MODEL || "claude-opus-5-5";
+// Sonnet keeps the cost per question low; set CLAUDE_MODEL in Netlify to use another model.
+const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
 const MAX_TURNS = 8;
 const STATUSES = ["found", "reviewing", "bid", "submitted", "awarded", "lost", "no-bid", "cancelled"];
 const COLL = { bids: "opportunities", new_opportunities: "inbox", contracts: "contracts", invoices: "invoices", contacts: "contacts", subs: "subs", past_performance: "pastperf", tasks: "tasks", site_visits: "visits", messages: "messages", leads: "leads", jobs: "jobs" };
@@ -163,7 +164,8 @@ function toApiMessages(history, snapshot) {
   while (msgs.length && msgs[0].role !== "user") msgs.shift();
   if (msgs.length) {
     const first = msgs[0];
-    first.content = [{ type: "text", text: `Command center snapshot (JSON, as of now):\n${JSON.stringify(snapshot || {}).slice(0, 150000)}` }, ...first.content];
+    // Cached so the extra steps of one answer (searches, lookups) re-read it at a fraction of the price.
+    first.content = [{ type: "text", text: `Command center snapshot (JSON, as of now):\n${JSON.stringify(snapshot || {}).slice(0, 40000)}`, cache_control: { type: "ephemeral" } }, ...first.content];
   }
   return msgs;
 }
@@ -192,7 +194,7 @@ export default async (req) => {
         const messages = toApiMessages(history, body.snapshot);
         for (let turn = 0; turn < MAX_TURNS; turn++) {
           // Refusal fallbacks are not used here: Netlify's AI Gateway does not pass beta headers through.
-          const s = client.messages.stream({ model: MODEL, max_tokens: 16000, system: SYSTEM, tools: TOOLS, messages });
+          const s = client.messages.stream({ model: MODEL, max_tokens: 16000, system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }], tools: TOOLS, messages });
           s.on("text", (d) => send({ t: "text", d }));
           s.on("streamEvent", (ev) => {
             if (ev.type === "content_block_start" && ev.content_block.type === "server_tool_use") send({ t: "status", d: "Searching the web…" });

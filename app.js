@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-5';
+  const APP_VERSION = '2026.11.22-6';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -720,15 +720,15 @@
       today: isoDay(), fiscalYear: 'FY27 runs 1 Oct 2026 to 30 Sep 2027', goals: GOALS,
       working: o.filter((x) => ['reviewing', 'bid'].includes(x.status) && !isPastOpp(x)).map(pick),
       submitted: o.filter((x) => x.status === 'submitted').map(pick),
-      foundOpen: o.filter((x) => (x.status || 'found') === 'found' && !isPastOpp(x)).slice(0, 40).map(pick),
+      foundOpen: o.filter((x) => (x.status || 'found') === 'found' && !isPastOpp(x)).slice(0, 15).map(pick),
       needsCloseOut: o.filter((x) => ['found', 'reviewing', 'bid'].includes(x.status || 'found') && isPastOpp(x)).length,
-      lost: o.filter((x) => x.status === 'lost').map((x) => ({ sol: x.sol, title: x.title, ours: oppPrice(x) || null, winner: x.awardee || null, winningPrice: x.awardPrice || null })),
+      lost: o.filter((x) => x.status === 'lost').slice(-20).map((x) => ({ sol: x.sol, title: x.title, ours: oppPrice(x) || null, winner: x.awardee || null, winningPrice: x.awardPrice || null })),
       awards: Object.entries(data.contracts || {}).filter(([, c]) => c.status !== 'Cancelled').map(([id, c]) => ({ id, title: c.title, agency: c.agency, value: c.value, status: c.status, awardDate: c.awardDate, end: c.end })),
-      invoices: list('invoices').map((i) => ({ contract: (data.contracts[i.contractId] || {}).title, number: i.number, amount: i.amount, status: i.status, sent: i.sent })),
+      invoices: list('invoices').slice(-30).map((i) => ({ contract: (data.contracts[i.contractId] || {}).title, number: i.number, amount: i.amount, status: i.status, sent: i.sent })),
       siteVisits: list('visits').map((v) => ({ title: v.title, date: v.date, time: v.time, location: v.location, status: v.status })),
-      quickTurn: quickItems().slice(0, 25).map((x) => ({ sol: x.sol, title: x.title, due: x.due, window: qtWin(x) })),
-      contactsToTouch: list('contacts').filter((c) => ['cold', 'due'].includes(relState(c).k)).slice(0, 30).map((c) => ({ name: c.name, agency: c.agency, role: c.role })),
-      subs: list('subs').map((x) => ({ company: x.company, trade: x.trade, area: x.area, rating: x.rating })),
+      quickTurn: quickItems().slice(0, 15).map((x) => ({ sol: x.sol, title: x.title, due: x.due, window: qtWin(x) })),
+      contactsToTouch: list('contacts').filter((c) => ['cold', 'due'].includes(relState(c).k)).slice(0, 15).map((c) => ({ name: c.name, agency: c.agency, role: c.role })),
+      subs: list('subs').slice(0, 30).map((x) => ({ company: x.company, trade: x.trade, area: x.area, rating: x.rating })),
       focusBid: askFocus,
     };
   }

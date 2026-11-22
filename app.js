@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-7';
+  const APP_VERSION = '2026.11.22-8';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -345,8 +345,11 @@
     $('#nav').innerHTML = TABS.map(btn).join('') + '<div style="height:10px"></div>' + EXTRA.map(btn).join('') + btn({ id: 'more', label: 'Settings', icon: 'settings' });
     // Phone tab bar: the six main screens plus Opportunities, which opens the More screen (New, Quick-turn, People, Subs…).
     const inMore = ui.view === 'more' || EXTRA.some((v) => v.id === ui.view);
-    $('#tabbar').innerHTML = TABS.map((v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}" aria-label="${v.label}">${icon(v.icon)}<span>${v.label}</span></button>`).join('')
-      + `<button data-go="more" class="${inMore ? 'active' : ''}" aria-label="Opportunities">${icon('new')}<span>Opps</span>${n.new ? `<i class="tbadge">${n.new > 99 ? '99+' : n.new}</i>` : ''}</button>`;
+    const tab = (v) => `<button data-go="${v.id}" class="${ui.view === v.id ? 'active' : ''}" aria-label="${v.label}">${icon(v.icon)}<span>${v.label}</span></button>`;
+    const opps = `<button data-go="more" class="${inMore ? 'active' : ''}" aria-label="Opportunities">${icon('new')}<span>Opps</span>${n.new ? `<i class="tbadge">${n.new > 99 ? '99+' : n.new}</i>` : ''}</button>`;
+    const byId = Object.fromEntries(TABS.map((v) => [v.id, v]));
+    // Order on phones: Home, Opportunities, Leads, Bids, Jobs, Contracts, Inbox.
+    $('#tabbar').innerHTML = tab(byId.dashboard) + opps + ['leads', 'bids', 'jobs', 'contracts', 'messages'].map((id) => tab(byId[id])).join('');
   }
 
   function render() {

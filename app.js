@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-14';
+  const APP_VERSION = '2026.11.23-15';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1504,7 +1504,7 @@
   const dropPeeks = (was) => { ['back', 'fwd'].forEach((k) => { if (was[k + 'Peek']) { was[k + 'Peek'].layer.remove(); was[k + 'Peek'] = null; } }); };
   document.addEventListener('touchstart', (e) => {
     g = null;
-    if (pagerFinish) return; // a swipe is still settling
+    if (pagerFinish) pagerFinish(); // a swipe is still settling: finish it now so the next one starts at once
     if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !$('#top-menu').hidden || !matchMedia('(max-width: 899px)').matches) return;
     const t = e.target, p = e.touches[0];
     if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .composer, .pr-menu') || scrollsSideways(t)) return;
@@ -1515,8 +1515,8 @@
     if (!g) return;
     const p = e.touches[0], dx = p.clientX - g.x, dy = p.clientY - g.y;
     if (g.lock === null) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      g.lock = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'h' : 'v';
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      g.lock = Math.abs(dx) > Math.abs(dy) * 1.1 ? 'h' : 'v';
       if (g.lock === 'h') { g.back = swipeTarget(-1); g.fwd = swipeTarget(1); view.style.transition = 'none'; view.style.willChange = 'transform'; }
     }
     if (g.lock !== 'h') return;
@@ -1534,11 +1534,13 @@
     const W = innerWidth, p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), sign = dx > 0 ? 1 : -1;
     const side = dx > 0 ? 'back' : 'fwd', tgt = was[side], pk = was[side + 'Peek'];
     const v = Date.now() - was.lt > 90 ? 0 : was.v; // a finger that stopped before lifting is not a flick
-    const flick = (Math.abs(v) > 0.35 && Math.sign(v) === sign) || (Math.abs(dx) / dt > 0.4 && Math.abs(dx) > 45);
-    const commit = tgt && Math.abs(dx) > 12 && (Math.abs(dx) > W * 0.2 || flick);
+    const flick = (Math.abs(v) > 0.2 && Math.sign(v) === sign) || (Math.abs(dx) / dt > 0.3 && Math.abs(dx) > 30);
+    const commit = tgt && Math.abs(dx) > 10 && (Math.abs(dx) > W * 0.15 || flick);
     if (commit && pk) {
       // Let go: the top bar and tabs switch at once, and both screens glide the rest of the way.
-      const ms = Math.round(Math.max(90, Math.min(210, 230 * (1 - Math.abs(dx) / W))));
+      // Finish at the finger's own speed (a fast flick lands almost at once), never slower than 120 ms.
+      const rest = W - Math.abs(dx), byFinger = Math.abs(v) > 0.05 ? rest / Math.abs(v) : 999;
+      const ms = Math.round(Math.max(55, Math.min(120, byFinger, 130 * (rest / W))));
       if (tgt.back) navStack.pop();
       go(tgt.view, tgt.back, true);
       const other = was[side === 'back' ? 'fwdPeek' : 'backPeek']; if (other) other.layer.remove();
@@ -1558,11 +1560,11 @@
       dropPeeks(was);
       if (tgt.fn) tgt.fn(); else { if (tgt.back) navStack.pop(); go(tgt.view, tgt.back); }
       view.style.transition = 'none'; view.style.transform = `translate3d(${-sign * W * 0.3}px,0,0)`; void view.offsetWidth;
-      view.style.transition = `transform 160ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
-      setTimeout(resetView, 180);
+      view.style.transition = `transform 110ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
+      setTimeout(resetView, 125);
     } else {
       // Not far enough: everything slides back.
-      const ms = 160;
+      const ms = 110;
       view.style.transition = `transform ${ms}ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
       ['back', 'fwd'].forEach((k) => { const q = was[k + 'Peek']; if (q) { q.inner.style.transition = `transform ${ms}ms ${EASE}`; placePeek(q, q.dir * W); } });
       setTimeout(() => { resetView(); dropPeeks(was); }, ms + 20);

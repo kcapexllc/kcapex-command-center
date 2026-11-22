@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats'];
-  const APP_VERSION = '2026.11.22-12';
+  const APP_VERSION = '2026.11.22-13';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -708,7 +708,7 @@
       <p>I can see your bids, awards, invoices, subs and deadlines. Attach a solicitation package (PDFs, Word files, photos), ask me to search the web, draft an email, or update a record.</p>
       <div class="chips">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
     const focus = askFocus ? `<div class="focus-chip">Talking about bid <b>${esc(askFocus.sol || askFocus.title || '')}</b> <button data-action="chat-unfocus" aria-label="Stop focusing on this bid">✕</button></div>` : '';
-    const files = chatFiles.length ? `<div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.pending ? '⏳' : f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.pending ? ' <em>reading…</em>' : f.label ? ` <em>${esc(f.label)}</em>` : ''} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
+    const files = chatFiles.length ? `<div class="cfiles-n">${chatFiles.length} of ${MAX_FILES} files</div><div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.pending ? '⏳' : f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.pending ? ' <em>reading…</em>' : f.label ? ` <em>${esc(f.label)}</em>` : ''} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
     return `<div class="chatwrap">${head}${listHtml}
       <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
       <div class="composer">${focus}${files}
@@ -769,7 +769,9 @@
   // PDFs: long ones with real text go to Claude as text (cheaper, no size limit); scanned or short ones go
   // as the PDF itself so Claude can see the pages. Word files go as text. Photos are shrunk to 1600px.
   // Everything uploads in 3 MB pieces first, so phone-sized requests never hit the function limit.
-  const NATIVE_MAX = 20 * 1024 * 1024, TEXT_MAX = 450000, PIECE = 4000000;
+  // Up to 15 files per message. The size caps (20 MB of PDFs/photos, about 450,000 characters of text) keep
+  // each request inside what Claude reads in one go, so answers stay fast.
+  const MAX_FILES = 15, NATIVE_MAX = 20 * 1024 * 1024, TEXT_MAX = 450000, PIECE = 4000000;
   const libs = {};
   function loadScript(url) { return libs[url] || (libs[url] = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = url; sc.onload = res; sc.onerror = () => { delete libs[url]; rej(new Error('Could not load the file reader. Check your connection.')); }; document.head.appendChild(sc); })); }
   async function pdfjs() {
@@ -818,13 +820,17 @@
   }
 
   async function readFiles(fileList) {
-    for (const f of fileList) {
+    const room = MAX_FILES - chatFiles.length;
+    if (room <= 0) { toast(`Up to ${MAX_FILES} files per message. Send these first, then attach more.`); return; }
+    if (fileList.length > room) toast(`Up to ${MAX_FILES} files per message. Added the first ${room}; send, then attach the rest.`);
+    for (const f of fileList.slice(0, room)) {
       const ph = { name: f.name || 'file', pending: true }; chatFiles.push(ph); render();
       try {
         const a = await prepFile(f); const i = chatFiles.indexOf(ph); if (i < 0) continue; // removed while reading
         const bin = chatFiles.reduce((n, x) => n + (x.blob ? x.blob.size : x.data ? x.data.length * 0.75 : 0), 0) + (a.blob ? a.blob.size : 0);
         const txt = chatFiles.reduce((n, x) => n + (x.text ? x.text.length : 0), 0) + (a.text ? a.text.length : 0);
-        if (bin > NATIVE_MAX || txt > TEXT_MAX) { chatFiles.splice(i, 1); toast(`${f.name} would put this message over the limit. Send it in the next message.`); }
+        const pages = chatFiles.reduce((n, x) => n + (x.blob ? x.pages || 10 : 0), 0) + (a.blob ? a.pages || 10 : 0);
+        if (bin > NATIVE_MAX || txt > TEXT_MAX || pages > 100) { chatFiles.splice(i, 1); toast(`${f.name} would put this message over the limit. Send it in the next message.`); }
         else chatFiles[i] = a;
       } catch (e) { chatFiles = chatFiles.filter((x) => x !== ph); toast(e.message || `Couldn't read ${f.name}`); }
       render();
@@ -867,8 +873,13 @@
     try {
       // Files upload first, then stay with the conversation so follow-up questions can use them too.
       if (files.length) {
-        const refs = [];
-        for (const [n, f] of files.entries()) refs.push(await uploadFile(f, (i, t) => { chatStatus = `Uploading ${files.length > 1 ? `file ${n + 1} of ${files.length}` : f.name}${t > 1 ? ` (part ${i + 1} of ${t})` : ''}…`; paintLive(); }));
+        // Three uploads at a time keeps a 15-file package quick without flooding a phone connection.
+        const refs = new Array(files.length); let next = 0, doneN = 0;
+        const status = () => { chatStatus = files.length > 1 ? `Uploading files (${doneN} of ${files.length} done)…` : `Uploading ${files[0].name}…`; paintLive(); };
+        status();
+        await Promise.all(Array.from({ length: Math.min(3, files.length) }, async () => {
+          while (next < files.length) { const n = next++; refs[n] = await uploadFile(files[n]); doneN++; status(); }
+        }));
         userMsg.fileRefs = refs; chatStatus = 'Reading your files…'; paintLive();
       }
       const send = msgs.slice(0, -1).map((m) => ({ role: m.role, text: m.text, fileNames: m.fileNames, fileRefs: m.fileRefs }));

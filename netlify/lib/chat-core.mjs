@@ -160,9 +160,9 @@ async function loadUpload(uploads, id) {
 
 // Turns the app's chat history into API messages. Files stay with the conversation (like the Claude app),
 // newest first, until the per-request budget runs out; older ones are then named only.
-const BIN_BUDGET = 22 * 1024 * 1024, TEXT_BUDGET = 500000;
+const BIN_BUDGET = 22 * 1024 * 1024, TEXT_BUDGET = 500000, PAGE_BUDGET = 100, IMAGE_BUDGET = 40;
 async function toApiMessages(history, snapshot, uploads) {
-  let bin = 0, txt = 0, lastFileBlock = null;
+  let bin = 0, txt = 0, pdfPages = 0, imgs = 0, lastFileBlock = null;
   const built = [];
   for (let k = history.length - 1; k >= 0; k--) {
     const m = history[k];
@@ -180,9 +180,9 @@ async function toApiMessages(history, snapshot, uploads) {
       if (f.type === "text/plain") {
         if (txt + f.data.length <= TEXT_BUDGET) { txt += f.data.length; block = { type: "document", source: { type: "text", media_type: "text/plain", data: f.data }, title, ...(f.note ? { context: f.note } : {}) }; }
       } else if (bin + f.data.length <= BIN_BUDGET) {
-        bin += f.data.length;
-        if (f.type === "application/pdf") block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title };
-        else if (/^image\/(png|jpeg|gif|webp)$/.test(f.type)) block = { type: "image", source: { type: "base64", media_type: f.type, data: f.data } };
+        // Claude reads up to about 100 PDF pages per request; photos are capped too.
+        if (f.type === "application/pdf" && pdfPages + (f.pages || 10) <= PAGE_BUDGET) { pdfPages += f.pages || 10; bin += f.data.length; block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title }; }
+        else if (/^image\/(png|jpeg|gif|webp)$/.test(f.type) && imgs < IMAGE_BUDGET) { imgs++; bin += f.data.length; block = { type: "image", source: { type: "base64", media_type: f.type, data: f.data } }; }
       }
       if (block) { content.push(block); if (!lastFileBlock) lastFileBlock = block; } else skipped.push(title);
     }

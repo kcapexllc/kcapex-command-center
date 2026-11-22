@@ -391,3 +391,4 @@ body.typing .tabbar { display: none; }
 .cfile em { font-style: normal; color: var(--muted); font-size: 11.5px; }
 .chatwrap .chat { min-height: 0; }
 .cfiles { max-height: 104px; overflow-y: auto; }
+.cfiles-n { font-size: 11.5px; color: var(--muted); margin: 0 4px 4px; }

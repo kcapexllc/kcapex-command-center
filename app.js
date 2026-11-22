@@ -39,8 +39,9 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-3';
+  const APP_VERSION = '2026.11.23-4';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
+  const loadedColls = new Set();
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
 
@@ -709,7 +710,8 @@
     if (!pid || !String(pid).startsWith('bid-')) return null;
     const bidId = String(pid).slice(4), o = data.opportunities[bidId]; if (!o) return null;
     const extra = data.projects[pid] || {};
-    return { id: pid, bidId, bid: o, name: [o.sol, o.title].filter(Boolean).join(' – ').slice(0, 120) || 'Bid', description: [o.agency, o.place].filter(Boolean).join(' · '),
+    const base = [o.sol, o.title].filter(Boolean).join(' – ').slice(0, 120) || 'Bid';
+    return { id: pid, bidId, bid: o, num: extra.num || null, name: (extra.num ? `#${extra.num} ` : '') + base, description: [o.agency, o.place].filter(Boolean).join(' · '),
       files: extra.files || [], instructions: extra.instructions || '', pinned: !!extra.pinned, updatedAt: extra.updatedAt,
       closed: !FOLDER_OPEN.includes(o.status || 'found') || (o.status !== 'submitted' && isPastOpp(o)) };
   }
@@ -719,6 +721,20 @@
     Object.keys(data.projects || {}).forEach((id) => ids.add(id));
     Object.values(data.chats || {}).forEach((c) => { if (c.projectId) ids.add(c.projectId); });
     return [...ids].map(folder).filter(Boolean).map((f) => { const ch = projChats(f.id)[0]; return { ...f, last: [f.updatedAt, ch && ch.updatedAt].filter(Boolean).sort().pop() }; });
+  }
+  // Folders are numbered #1, #2, #3… in the order the bids were added, and keep their number for good.
+  // New bids get the next number as soon as their folder appears.
+  let numbering = false;
+  async function numberFolders() {
+    if (numbering || !db || !loadedColls.has('projects') || !loadedColls.has('opportunities')) return;
+    const need = folderList().filter((f) => !f.num);
+    if (!need.length) return;
+    numbering = true;
+    try {
+      let next = Math.max(0, ...Object.values(data.projects || {}).map((x) => Number(x.num) || 0)) + 1;
+      const when = (f) => String(f.bid.createdAt || f.bid.posted || f.bid.updatedAt || f.bidId);
+      for (const f of need.sort((a, b) => when(a).localeCompare(when(b)))) { if (await saveFolder(f.id, { num: next })) next++; }
+    } finally { numbering = false; }
   }
   const curProjectId = () => { const c = chatId && data.chats && data.chats[chatId]; const id = c ? c.projectId : chatProject; return folder(id) ? id : null; };
   const ago = (iso) => { const d = new Date(iso || 0), s = (Date.now() - d) / 1000; if (!iso || isNaN(d)) return ''; if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`; if (s < 86400) return `${Math.round(s / 3600)} hours ago`; if (s < 604800) return `${Math.round(s / 86400)} days ago`; return `${Math.round(s / 604800)} weeks ago`; };
@@ -734,7 +750,7 @@
     const q = (ui.query.projects || '').toLowerCase(), filt = ui.projFilter || 'open';
     const all = folderList(), open = all.filter((f) => !f.closed), closed = all.filter((f) => f.closed);
     const shown = (filt === 'open' ? open : closed).filter((f) => !q || `${f.name} ${f.description}`.toLowerCase().includes(q))
-      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (filt === 'open' ? String(a.bid.due || '9').localeCompare(String(b.bid.due || '9')) : String(b.last || '').localeCompare(String(a.last || ''))));
+      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.num || 1e9) - (a.num || 1e9));
     const row = (f) => `<div class="proj-row ${projMenu === f.id ? 'open' : ''}"><button class="pr-open" data-proj="${esc(f.id)}"><span class="pr-ic">${f.pinned ? '📌' : '📁'}</span><span class="pr-tx"><b>${esc(f.name)}</b><em>${esc([f.closed ? (f.bid.status || 'closed') : dueTxt(f.bid), projChats(f.id).length ? `${projChats(f.id).length} chats` : '', f.files.length ? `${f.files.length} files` : '', ago(f.last)].filter(Boolean).join(' · '))}</em></span></button><button class="pr-more" data-proj-menu="${esc(f.id)}" aria-label="Folder options">⋯</button>
       ${projMenu === f.id ? `<div class="pr-menu"><button data-proj-do="pin:${esc(f.id)}">${f.pinned ? 'Unpin' : '📌 Pin'}</button><button data-open="bids:${esc(f.bidId)}">✎ Open bid</button></div>` : ''}</div>`;
     return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-back">‹ Chat</button><div class="chat-title">Bid folders</div><span></span></div>
@@ -1257,7 +1273,7 @@
     db = d;
     DBC.forEach((c) => d.collection(c).onSnapshot((snap) => {
       const m = {}; snap.docs.forEach((s) => { const b = s.data(); if (b && !b.deleted) m[s.id] = b; });
-      data[c] = m; $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
+      data[c] = m; loadedColls.add(c); if (c === 'projects' || c === 'opportunities' || c === 'chats') setTimeout(numberFolders, 500); $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
     }, () => { $('#sync').textContent = 'Offline'; }));
   });
   window.addEventListener('kc-meta', () => { $('#sync').textContent = syncLine(false); });

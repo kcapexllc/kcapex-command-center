@@ -16,7 +16,11 @@ function authorized(req) {
   if (!pw) return false;
   const want = createHash("sha256").update(`kcapex-command-center:${pw}`).digest("hex");
   const m = (req.headers.get("cookie") || "").match(/(?:^|;\s*)kc_auth=([0-9a-f]{64})/);
-  return !!m && timingSafeEqual(Buffer.from(m[1]), Buffer.from(want));
+  if (m && timingSafeEqual(Buffer.from(m[1]), Buffer.from(want))) return true;
+  const b = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+  if (!b) return false;
+  const got = createHash("sha256").update(`kcapex-command-center:${b[1].trim()}`).digest("hex");
+  return timingSafeEqual(Buffer.from(got), Buffer.from(want));
 }
 
 const newRev = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -53,6 +57,28 @@ export default async (req) => {
     const rev = newRev();
     await store.setJSON(b.collection, b.docs, { metadata: { rev } });
     return json({ ok: true, rev, count: Object.keys(b.docs).length });
+  }
+
+  // Sync job: read or save the last-synced fingerprints (one blob, not a collection).
+  if (b.op === "baseline-get") return json({ baseline: (await store.get("_baseline", { type: "json" })) || null });
+  if (b.op === "baseline-set") {
+    if (!b.baseline || typeof b.baseline !== "object") return json({ error: "Bad baseline" }, 400);
+    await store.setJSON("_baseline", b.baseline);
+    return json({ ok: true });
+  }
+
+  // Sync job: apply many sets and deletes to one collection in a single write.
+  if (b.op === "merge") {
+    if (!COLLS.includes(b.collection)) return json({ error: "Bad collection" }, 400);
+    const set = b.set && typeof b.set === "object" ? b.set : {};
+    const del = Array.isArray(b.del) ? b.del : [];
+    if ([...Object.keys(set), ...del].some((id) => !ID.test(String(id)))) return json({ error: "Bad id" }, 400);
+    const cur = (await store.get(b.collection, { type: "json" })) || {};
+    for (const [id, doc] of Object.entries(set)) cur[id] = doc;
+    for (const id of del) delete cur[id];
+    const rev = newRev();
+    await store.setJSON(b.collection, cur, { metadata: { rev } });
+    return json({ ok: true, rev, set: Object.keys(set).length, del: del.length });
   }
 
   const [c, id, extra] = String(b.path || "").split("/");

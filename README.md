@@ -15,6 +15,13 @@ It is hosted on Netlify at https://kcapex-command-center.netlify.app behind a pa
 
 Records live in Netlify Blobs, not in this repo.
 
+## Sync with the Pipeline in Claude
+The scheduled task "KCAPEX app sync" runs every 2 hours, 6:25 AM to 10:25 PM Central. It runs `scripts/sync.mjs`, which the session downloads from the app.
+- The session exports the artifact database with ArtifactData, then runs `node sync.mjs plan EXPORT WORK`. That writes artifact-side changes into the app and lists the app-side changes the session writes back to the artifact.
+- For each record it compares the artifact copy, the app copy and the last-synced fingerprint (stored in Blobs as `_baseline`). The side that changed wins. If both changed, the newer `updatedAt` wins.
+- It refuses to run if an export looks incomplete, so a failed list can never wipe records.
+- Auth: the cloud environment holds the app password as a network secret for this host. The proxy sends it as `Authorization: Bearer`, which the edge function and `/api/db` accept.
+
 ## Install on a phone
 - **iPhone:** open the site in Safari, sign in, then Share → Add to Home Screen. Sign in once more inside the app.
 - **Android:** open it in Chrome, sign in, then ⋮ → Install app.

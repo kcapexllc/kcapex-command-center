@@ -69,8 +69,11 @@ export default async (req: Request, context: Context) => {
     return new Response(null, { status: 303, headers: { location: "/" } });
   }
 
+  // The sync job (a scheduled Claude session) sends the password as a bearer token.
+  const bearer = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  const bearerOk = !!bearer && safeEqual(await token(bearer[1].trim()), expected);
   const cookie = context.cookies.get(COOKIE) ?? "";
-  if (safeEqual(cookie, expected)) {
+  if (bearerOk || safeEqual(cookie, expected)) {
     // Authorized. For HTML pages, strip the "Powered by Netlify" badge script
     // that Netlify injects on free-plan sites; everything else passes through.
     const res = await context.next();

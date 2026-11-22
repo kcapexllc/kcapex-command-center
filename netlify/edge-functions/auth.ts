@@ -70,7 +70,19 @@ export default async (req: Request, context: Context) => {
   }
 
   const cookie = context.cookies.get(COOKIE) ?? "";
-  if (safeEqual(cookie, expected)) return; // authorized: continue to the static site
+  if (safeEqual(cookie, expected)) {
+    // Authorized. For HTML pages, strip the "Powered by Netlify" badge script
+    // that Netlify injects on free-plan sites; everything else passes through.
+    const res = await context.next();
+    if (!(res.headers.get("content-type") ?? "").includes("text/html")) return res;
+    const body = (await res.text())
+      .replace(/<script[^>]*\/\.netlify\/scripts\/hud[^>]*>\s*<\/script>/gi, "")
+      .replace(/<!--\s*This site is hosted on Netlify[\s\S]*?-->/i, "");
+    const headers = new Headers(res.headers);
+    headers.delete("content-length");
+    headers.delete("etag");
+    return new Response(body, { status: res.status, statusText: res.statusText, headers });
+  }
 
   return html(loginPage(false), 401);
 };

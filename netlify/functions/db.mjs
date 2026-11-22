@@ -5,7 +5,7 @@
 import { getStore } from "@netlify/blobs";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-const COLLS = ["opportunities", "contacts", "subs", "pastperf", "tasks", "feeds", "inbox", "portals", "settings", "leads", "jobs", "contracts", "messages", "invoices"];
+const COLLS = ["opportunities", "contacts", "subs", "pastperf", "tasks", "feeds", "inbox", "portals", "settings", "leads", "jobs", "contracts", "messages", "invoices", "visits"];
 const ID = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
 
 const json = (body, status = 200) =>
@@ -37,7 +37,8 @@ export default async (req) => {
       revs[c] = (m && m.metadata && m.metadata.rev) || "0";
     }));
     const want = (url.searchParams.get("c") || "").split(",").filter((c) => COLLS.includes(c));
-    const out = { revs };
+    const info = await store.get("_syncinfo", { type: "json" });
+    const out = { revs, lastSync: (info && info.at) || null };
     if (want.length) {
       out.collections = {};
       await Promise.all(want.map(async (c) => { out.collections[c] = (await store.get(c, { type: "json" })) || {}; }));
@@ -64,6 +65,7 @@ export default async (req) => {
   if (b.op === "baseline-set") {
     if (!b.baseline || typeof b.baseline !== "object") return json({ error: "Bad baseline" }, 400);
     await store.setJSON("_baseline", b.baseline);
+    await store.setJSON("_syncinfo", { at: new Date().toISOString() });
     return json({ ok: true });
   }
 

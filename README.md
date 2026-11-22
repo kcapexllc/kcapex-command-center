@@ -7,6 +7,7 @@ It is hosted on Netlify at https://kcapex-command-center.netlify.app behind a pa
 - `index.html`, `styles.css` and `app.js` hold the Command Center dashboard (Home, Bids, Leads, Jobs, Contracts, Inbox, plus New, Quick-turn, People, Subs and Library under More), in purple.
 - Bids, New, Quick-turn, People, Subs and Library read and write the KCAPEX Pipeline collections, which sync with Claude.
   Leads, Jobs, Contracts and Inbox are app-only collections, shared across devices.
+- `netlify/functions/ask.mjs` powers Ask Claude through the Claude API (official SDK). The model defaults to `claude-opus-5-5`; set `CLAUDE_MODEL` in Netlify to change it. The key comes from Netlify's AI Gateway, or from an `ANTHROPIC_API_KEY` you set.
 - `claude-shim.js` provides the database client (`window.claude.use('db')`), backed by `/api/db`.
 - `netlify/functions/db.mjs` is the database: one Netlify Blobs entry per collection
   (Pipeline: opportunities, contacts, subs, pastperf, tasks, feeds, inbox, portals, settings; app-only: leads, jobs, contracts, messages).

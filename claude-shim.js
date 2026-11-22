@@ -5,7 +5,7 @@
    report as unavailable, and the page hides them. */
 (function () {
   'use strict';
-  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages', 'invoices'];
+  var COLLS = ['opportunities', 'contacts', 'subs', 'pastperf', 'tasks', 'feeds', 'inbox', 'portals', 'settings', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits'];
   var CACHE_KEY = 'kc.pipeline.cache.v1';
   var POLL_MS = 20000;
 
@@ -55,6 +55,8 @@
     pulling = fetch('/api/db', { credentials: 'same-origin', cache: 'no-store' })
       .then(onAuthLost).then(function (r) { return r.json(); })
       .then(function (j) {
+        window.kcMeta = { lastSync: j.lastSync || null, pulledAt: new Date().toISOString() };
+        try { window.dispatchEvent(new Event('kc-meta')); } catch (e) { /* ignore */ }
         var stale = COLLS.filter(function (c) { return !loaded || (j.revs || {})[c] !== revs[c]; });
         if (!stale.length) return;
         return fetch('/api/db?c=' + stale.join(','), { credentials: 'same-origin', cache: 'no-store' })

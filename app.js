@@ -16,6 +16,8 @@
     people: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/>',
     subs: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5z"/>',
     library: '<path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l3.5-.9 2.8 15.4-3.5.9z"/>',
+    visits: '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    ask: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
     invoices: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3"/>',
     intel: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
@@ -35,7 +37,8 @@
   const safeUrl = (u) => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '');
 
   // ---------- Data (synced database) ----------
-  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices'];
+  const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits'];
+  const APP_VERSION = '2026.11.22-3';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -58,10 +61,11 @@
   const etDay = (iso) => { if (!iso) return ''; const s = String(iso); if (s.length <= 10) return s; const d = new Date(s); if (isNaN(d)) return s.slice(0, 10); try { return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (_) { return s.slice(0, 10); } };
   const qtWin = (x) => { const p = etDay(x.posted), u = etDay(x.due); if (!p || !u) return null; const a = Date.parse(p + 'T00:00:00Z'), b = Date.parse(u + 'T00:00:00Z'); return isNaN(a) || isNaN(b) ? null : Math.round((b - a) / 864e5); };
   const qtAmended = (x) => { if (x.amended === true) return true; if (x.lastNotice) return etDay(x.lastNotice) !== etDay(x.posted); if (x.watch && x.watch.noticesCount != null) return Number(x.watch.noticesCount) > 1; if (/\bamend/i.test((x.rank && x.rank.why) || '')) return true; if (x.amended === false) return false; return null; };
-  const qtOk = (x) => { const w = qtWin(x), u = etDay(x.due); if (w === null || w < 1 || !u || u < etDay(new Date().toISOString())) return false; return w <= (qtAmended(x) === true ? 9 : 8); };
+  const QT_MIN = 3, QT_MAX = 6; // owners' rule: 3 to 6 days from posted to due
+  const qtOk = (x) => { const w = qtWin(x), u = etDay(x.due); if (w === null || !u || u < etDay(new Date().toISOString())) return false; return w >= QT_MIN && w <= QT_MAX; };
   // ---- KPI helpers ----
   const FY_START = '2026-10-01', FY_END = '2027-09-30';
-  const GOALS = { revenue: 2000000, bids: 180, winRate: 20, wins: 36, approvalOver: 500000 };
+  const GOALS = { revenue: 2000000, bids: 180, winRate: 20, wins: 36, approvalOver: 500000, kobeFrom: 10000 };
   const fyFrac = () => Math.min(1, Math.max(0, (parseDate(isoDay()) - parseDate(FY_START)) / 86400000 / 365));
   const liveOpps = () => list('opportunities').filter((o) => o.status !== 'pursuing');
   const pricingTotal = (o) => { const p = o.pricing; if (!p || !Array.isArray(p.lines)) return 0; const m = (Number(p.pct) || 0) / 100;
@@ -72,8 +76,17 @@
   const invoicedFor = (cid) => list('invoices').filter((i) => i.contractId === cid && i.status !== 'Draft');
   const coReplies = () => liveOpps().filter((o) => o.followups && o.followups.lastReplyId && !o.followups.replyHandled);
   const signups = () => list('subs').filter((s) => s.signup && !s.reviewed);
-  const needsApproval = (o) => ['found', 'reviewing', 'bid'].includes(o.status || 'found') && !isPastOpp(o) && oppPrice(o) > GOALS.approvalOver &&
-    !(Array.isArray(o.notes) && o.notes.some((n) => /approved/i.test((n && n.text) || '')));
+  // Returns 'owner' (over $500K, majority owner signs off), 'kobe' ($10K to $500K) or '' when no approval is pending.
+  const approvalTier = (o) => { const p = oppPrice(o); return p > GOALS.approvalOver ? 'owner' : p >= GOALS.kobeFrom ? 'kobe' : ''; };
+  const isApproved = (o, tier) => Array.isArray(o.notes) && o.notes.some((n) => { const t = String((n && n.text) || ''); return tier === 'owner' ? /approved by the majority owner/i.test(t) : /approved by (kobe|the majority owner)/i.test(t); });
+  const needsApproval = (o) => { if (!['reviewing', 'bid'].includes(o.status) || isPastOpp(o)) return false; const tier = approvalTier(o); return !!tier && !isApproved(o, tier); };
+  const methodTag = (m) => { const s = String(m || ''); return /piee|wawf/i.test(s) ? 'PIEE' : /sam\.gov|\bsam\b/i.test(s) ? 'SAM' : /portal|bidbuy|emacs|isupplier|fedconnect/i.test(s) ? 'Portal' : /mail(?!\w)|post/i.test(s) && !/e-?mail/i.test(s) ? 'Mail' : /e-?mail/i.test(s) ? 'Email' : s ? 'Other' : ''; };
+  const RESTRICTED = /8\(a\)|\b8a\b|sdvosb|service-disabled|veteran|wosb|women|hubzone|native|indian|tribal|isbee/i;
+  const eligible = (x) => !RESTRICTED.test(String(x.setAside || ''));
+  const relState = (c) => { const cad = Number(c.cadence) || 45; let last = c.lastTouch || '';
+    if (!last) { const ns = (Array.isArray(c.notes) ? c.notes : []).map((n) => new Date(n && n.t)).filter((d) => !isNaN(d)).sort((a, b) => b - a); if (ns.length) last = isoDay(ns[0]); }
+    const since = last ? -daysUntil(last) : null; if (since === null) return { k: 'none', since, cad };
+    if (since > cad) return { k: 'cold', since, cad }; if (c.nextFollow && dayOf(c.nextFollow) <= isoDay()) return { k: 'due', since, cad }; return { k: 'warm', since, cad }; };
   const quoteSummary = (o) => { const q = Object.values(o.quotes || {}); if (!q.length) return ''; const got = q.filter((x) => x.status === 'received').length, out = q.filter((x) => x.status === 'requested').length;
     return [got ? got + ' in' : '', out ? out + ' out' : ''].filter(Boolean).join(', ') || q.length + ' closed'; };
   const isPastOpp = (o) => { const st = o.status || 'found'; if (!['found', 'reviewing', 'bid'].includes(st)) return true; const n = daysUntil(o.due); return n !== null && n < 0; };
@@ -121,7 +134,7 @@
       title: (r) => r.title || r.sol || 'Untitled',
       sub: (r) => [r.sol, r.agency].filter(Boolean).join(' · '),
       value: (r) => oppPrice(r),
-      meta: (r) => [['Due', fmtDate(r.due)], ['Type', r.noticeType], ['Submit via', r.method && String(r.method).split(/[ ,]/)[0]], ['Set-aside', r.setAside], ['Quotes', quoteSummary(r)]],
+      meta: (r) => [['Due', fmtDate(r.due)], ['Type', r.noticeType], ['Set-aside', r.setAside], ['Quotes', quoteSummary(r)]],
       search: ['title', 'sol', 'agency', 'office', 'naics', 'place', 'setAside'],
       dateKey: 'due', notes: true,
     },
@@ -176,6 +189,22 @@
       meta: (r) => { const inv = invoicedFor(r.id); const billed = inv.reduce((a, i) => a + (Number(i.amount) || 0), 0), paid = inv.filter((i) => i.status === 'Paid').reduce((a, i) => a + (Number(i.amount) || 0), 0);
         return [['Awarded', fmtDate(r.awardDate)], ['PoP', [fmtDate(r.start), fmtDate(r.end)].filter(Boolean).join(' → ')], ['Invoiced', billed ? money(billed) : ''], ['Paid', paid ? money(paid) : '']]; },
       search: ['title', 'agency', 'number', 'notesTxt', 'type'], dateKey: 'end',
+    },
+    visits: {
+      coll: 'visits', label: 'Site visits', singular: 'Site visit', icon: 'visits', statusField: 'status', dateKey: 'date',
+      fields: [
+        { key: 'title', label: 'Site visit', type: 'text', required: true, full: true },
+        { key: 'bidId', label: 'Bid', type: 'select', optionsFn: () => liveOpps().filter((o) => !isPastOpp(o) || o.status === 'submitted').sort((a, b) => String(a.due || '9').localeCompare(String(b.due || '9'))).map((o) => [o.id, (o.sol ? o.sol + ' · ' : '') + (o.title || '')]), full: true },
+        { key: 'status', label: 'Status', type: 'select', options: ['Scheduled', 'Done', 'Skipped'] },
+        { key: 'date', label: 'Date', type: 'date' },
+        { key: 'time', label: 'Time and zone', type: 'text' },
+        { key: 'location', label: 'Location', type: 'text' },
+        { key: 'who', label: 'Who attends (KCAPEX or sub)', type: 'text' },
+        { key: 'contact', label: 'Government contact', type: 'text' },
+        { key: 'notesTxt', label: 'Notes, access, photos to take', type: 'textarea', full: true },
+      ],
+      title: (r) => r.title, sub: (r) => { const o = data.opportunities[r.bidId]; return [r.location, o ? (o.sol || o.title) : ''].filter(Boolean).join(' · '); }, value: () => null,
+      meta: (r) => [['Date', fmtDate(r.date)], ['Time', r.time], ['Who', r.who]], search: ['title', 'location', 'who', 'contact', 'notesTxt'],
     },
     invoices: {
       coll: 'invoices', label: 'Invoices', singular: 'Invoice', icon: 'invoices', statusField: 'status', newestFirst: true, dateKey: 'sent',
@@ -288,8 +317,10 @@
     { id: 'library', label: 'Library', icon: 'library' },
     { id: 'invoices', label: 'Invoices', icon: 'invoices' },
     { id: 'intel', label: 'Price intel', icon: 'intel' },
+    { id: 'visits', label: 'Site visits', icon: 'visits' },
+    { id: 'ask', label: 'Ask Claude', icon: 'ask' },
   ];
-  const TITLES = { dashboard: 'GovCon Command Center', more: 'More', new: 'New opportunities', quick: 'Quick-turn bids', intel: 'Price intel' };
+  const TITLES = { dashboard: 'Command Center', more: 'More', new: 'New opportunities', quick: 'Quick-turn bids', intel: 'Price intel', ask: 'Ask Claude' };
 
   // ---------- Routing ----------
   const ui = { view: 'dashboard', filter: {}, query: {}, level: 'all' };
@@ -304,6 +335,7 @@
       contracts: awards().length,
       messages: list('messages').filter((m) => m.status === 'Needs reply').length + coReplies().length,
       invoices: list('invoices').filter((i) => i.status === 'Sent').length,
+      visits: list('visits').filter((v) => v.status === 'Scheduled' && daysUntil(v.date) !== null && daysUntil(v.date) >= 0).length,
       new: newItems().length, quick: quickItems().length,
     };
   }
@@ -327,6 +359,7 @@
       else if (ui.view === 'new') el.innerHTML = renderNew();
       else if (ui.view === 'quick') el.innerHTML = renderQuick();
       else if (ui.view === 'intel') el.innerHTML = renderIntel();
+      else if (ui.view === 'ask') { el.innerHTML = renderAsk(); }
       else el.innerHTML = renderList(ui.view);
     } catch (err) { console.error(err); el.innerHTML = `<div class="notice">This page hit a problem drawing a record (${esc(err.message)}). Your data is safe.</div>`; }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
@@ -364,7 +397,9 @@
     const winRate = aw.length + lost.length ? Math.round((aw.length / (aw.length + lost.length)) * 100) : null;
     const deadlines = collectDeadlines();
     const mine = deadlines.filter((d) => d.kind !== 'Found bid due');
-    const dueWeek = mine.filter((d) => d.days >= 0 && d.days <= 7).length;
+    const bidDue = mine.filter((d) => d.group === 'bid'), fuDue = mine.filter((d) => d.group !== 'bid');
+    const dueWeek = bidDue.filter((d) => d.days >= 0 && d.days <= 7).length;
+    const fuWeek = fuDue.filter((d) => d.days <= 7).length;
     const foundWeek = deadlines.filter((d) => d.days >= 0 && d.days <= 7 && d.kind === 'Found bid due').length;
     const replies = coReplies().length + list('messages').filter((m) => m.status === 'Needs reply').length;
     const leadsN = list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).length + signups().length;
@@ -387,18 +422,19 @@
     return `
       <div class="hero">
         ${nw.length ? `<article class="card" data-go="new"><div class="card-title">${nw.length} new opportunit${nw.length === 1 ? 'y' : 'ies'} from your saved searches</div><div class="card-sub">Local ${lv('local')} · State ${lv('state')} · Federal ${lv('federal')}</div></article>` : ''}
-        ${qk ? `<article class="card" data-go="quick"><div class="card-title">${qk} quick-turn bid${qk === 1 ? '' : 's'} open</div><div class="card-sub">Posted to due in 1 to 8 days · tap to see them</div></article>` : ''}
-        ${approvals.length ? `<article class="card" data-filter="bids:Needs approval" data-go2="bids" style="border-color:var(--red)"><div class="card-title">${approvals.length} bid${approvals.length === 1 ? '' : 's'} over $500K need the majority owner's approval</div><div class="card-sub">${esc(approvals.slice(0, 2).map((o) => o.sol || o.title).join(' · '))}</div></article>` : ''}
+        ${qk ? `<article class="card" data-go="quick"><div class="card-title">${qk} quick-turn bid${qk === 1 ? '' : 's'} open</div><div class="card-sub">Posted to due in 3 to 6 days · tap to see them</div></article>` : ''}
+        ${approvals.length ? `<article class="card" data-filter="bids:Needs approval" data-go2="bids" style="border-color:var(--red)"><div class="card-title">${approvals.length} bid${approvals.length === 1 ? '' : 's'} waiting for approval</div><div class="card-sub">${approvals.filter((o) => approvalTier(o) === 'kobe').length} for Kobe ($10K to $500K) · ${approvals.filter((o) => approvalTier(o) === 'owner').length} for the majority owner (over $500K)</div></article>` : ''}
       </div>
       <div class="kpis">
         <div class="kpi accent"><div class="kpi-label">Open pipeline</div><div class="kpi-value">${money(pipeline)}</div><div class="kpi-sub">${submitted.length} submitted · ${working.length} in progress${unpriced ? ` · ${unpriced} unpriced` : ''}</div></div>
-        <div class="kpi"><div class="kpi-label">Due in 7 days</div><div class="kpi-value" style="color:${dueWeek ? 'var(--red)' : 'inherit'}">${dueWeek}</div><div class="kpi-sub">your bids & follow-ups${foundWeek ? ` · ${foundWeek} found bids not reviewed` : ''}</div></div>
+        <div class="kpi"><div class="kpi-label">Bids due in 7 days</div><div class="kpi-value" style="color:${dueWeek ? 'var(--red)' : 'inherit'}">${dueWeek}</div><div class="kpi-sub">hard deadlines you're working · ${fuWeek} follow-up${fuWeek === 1 ? '' : 's'} due</div></div>
         <div class="kpi"><div class="kpi-label">Awarded</div><div class="kpi-value">${money(awardedTotal)}</div><div class="kpi-sub">${aw.length} win${aw.length === 1 ? '' : 's'} · ${activeWork.length} active</div></div>
         <div class="kpi"><div class="kpi-label">Win rate</div><div class="kpi-value">${winRate === null ? '—' : winRate + '%'}</div><div class="kpi-sub">${aw.length} won · ${lost.length} lost</div></div>
         <div class="kpi"><div class="kpi-label">Awaiting decision</div><div class="kpi-value">${submitted.length}</div><div class="kpi-sub" ${stale.length ? 'data-filter="bids:Needs close-out" data-go2="bids" style="cursor:pointer"' : ''}>submitted${stale.length ? ` · <b style="color:var(--red)">${stale.length} need close-out</b>` : ''}</div></div>
         <div class="kpi"><div class="kpi-label">Needs reply</div><div class="kpi-value" style="color:${replies ? 'var(--red)' : 'inherit'}">${replies}</div><div class="kpi-sub">${coReplies().length} CO repl${coReplies().length === 1 ? 'y' : 'ies'} · ${leadsN} lead${leadsN === 1 ? '' : 's'}</div></div>
       </div>
-      <div class="panel" style="margin-bottom:16px"><h2>FY27 goals <span style="text-transform:none;letter-spacing:0;font-size:12.5px">${Math.round(f * 100)}% of the year gone</span></h2>
+      ${todayPanel(stale)}
+      <div class="panel" style="margin-bottom:16px"><h2>FY27 scorecard <span style="text-transform:none;letter-spacing:0;font-size:12.5px">${Math.round(f * 100)}% of the year gone</span></h2>
         <div class="goals">
           ${goalRow('Revenue invoiced', invoicedFY, Math.round(GOALS.revenue * f), money, invoicedFY ? '' : 'log invoices on your contracts to track this')}
           ${goalRow('Bids submitted', bidsFY, Math.round(GOALS.bids * f), String, '15 a month')}
@@ -409,14 +445,11 @@
       ${seasonBlock()}
       <div class="grid-2">
         <div class="panel">
-          <h2>Upcoming deadlines <span style="text-transform:none;letter-spacing:0;font-size:12.5px">next 30 days</span></h2>
-          ${foundWeek ? `<p class="kpi-sub" data-filter="bids:Found, not reviewed" data-go2="bids" style="cursor:pointer;margin:0 0 8px">+ ${foundWeek} found bid${foundWeek === 1 ? '' : 's'} close this week that nobody has reviewed. <b style="color:var(--blue)">See them</b></p>` : ''}
-          ${mine.length ? mine.slice(0, 12).map((d) => {
-            const dt = parseDate(d.date); const cls = d.days < 0 ? 'overdue' : d.days <= 3 ? 'soon' : '';
-            const when = d.days < 0 ? `${-d.days}d overdue` : d.days === 0 ? 'Today' : d.days === 1 ? 'Tomorrow' : `in ${d.days} days`;
-            return `<div class="deadline" data-open="${d.view}:${d.id}"><div class="date-chip ${cls}"><small>${dt.toLocaleDateString(undefined, { month: 'short' })}</small><b>${dt.getDate()}</b></div>
-              <div class="deadline-main"><div class="deadline-title">${esc(d.title)}</div><div class="deadline-sub">${esc(d.kind)} · ${when}</div></div></div>`;
-          }).join('') : '<div class="empty">None of your bids or follow-ups are due in the next 30 days.</div>'}
+          <h2>Bid deadlines <span style="text-transform:none;letter-spacing:0;font-size:12.5px">next 30 days</span></h2>
+          ${bidDue.length ? bidDue.slice(0, 10).map(dlRow).join('') : '<div class="empty">None of your working bids are due in the next 30 days.</div>'}
+          ${foundWeek ? `<p class="kpi-sub" data-filter="bids:Found, not reviewed" data-go2="bids" style="cursor:pointer;margin:8px 0 0">+ ${foundWeek} found bid${foundWeek === 1 ? '' : 's'} close this week that nobody has reviewed. <b style="color:var(--blue)">See them</b></p>` : ''}
+          <h2 style="margin-top:22px">Follow-ups and site visits</h2>
+          ${fuDue.length ? fuDue.slice(0, 8).map(dlRow).join('') : '<div class="empty">No follow-ups or site visits due.</div>'}
         </div>
         <div class="panel">
           <h2>Bid pipeline <button data-go="bids">View all</button></h2>
@@ -428,10 +461,36 @@
       </div>`;
   }
 
+  function dlRow(d) {
+    const dt = parseDate(d.date); const cls = d.days < 0 ? 'overdue' : d.days <= 3 ? 'soon' : '';
+    const when = d.days < 0 ? `${-d.days}d overdue` : d.days === 0 ? 'Today' : d.days === 1 ? 'Tomorrow' : `in ${d.days} days`;
+    return `<div class="deadline" data-open="${d.view}:${esc(d.id)}"><div class="date-chip ${cls}"><small>${dt.toLocaleDateString(undefined, { month: 'short' })}</small><b>${dt.getDate()}</b></div>
+      <div class="deadline-main"><div class="deadline-title">${esc(d.title)}</div><div class="deadline-sub">${esc(d.kind)} · ${when}${d.extra ? ' · ' + esc(d.extra) : ''}</div></div></div>`;
+  }
+
+  function todayPanel(stale) {
+    const today = isoDay();
+    const quotes = []; liveOpps().filter((o) => !isPastOpp(o) || o.status === 'submitted').forEach((o) => Object.entries(o.quotes || {}).forEach(([sid, q]) => { if (q.status === 'requested') quotes.push({ o, sid, q }); }));
+    const cold = list('contacts').map((c) => ({ c, r: relState(c) })).filter((x) => x.r.k === 'cold' || x.r.k === 'due').sort((a, b) => (b.r.since ?? 0) - (a.r.since ?? 0));
+    const staleWork = liveOpps().filter((o) => ['reviewing', 'bid'].includes(o.status) && !isPastOpp(o) && o.updatedAt && -daysUntil(o.updatedAt) > 7);
+    const visits = list('visits').filter((v) => v.status !== 'Done' && v.status !== 'Skipped' && daysUntil(v.date) !== null && daysUntil(v.date) >= -1 && daysUntil(v.date) <= 14).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const approvals = liveOpps().filter(needsApproval);
+    const row = (open, title, sub, badge) => `<div class="deadline" data-open="${open}"><div class="deadline-main"><div class="deadline-title">${esc(title)}</div><div class="deadline-sub">${esc(sub)}</div></div>${badge || ''}</div>`;
+    const block = (h, n, body, empty) => `<div class="tblock"><h3 class="sec">${h} <span class="n">${n}</span></h3>${n ? body : `<div class="tempty">${empty}</div>`}</div>`;
+    return `<div class="panel" style="margin-bottom:16px"><h2>Today</h2><div class="today-grid">
+      ${block('Site visits', visits.length, visits.slice(0, 4).map((v) => row('visits:' + v.id, v.title, [fmtDate(v.date) + (v.time ? ' ' + v.time : ''), v.location].filter(Boolean).join(' · '), daysUntil(v.date) <= 1 ? '<span class="badge b-red">Soon</span>' : '')).join(''), 'No site visits in the next two weeks.')}
+      ${block('Approvals', approvals.length, approvals.slice(0, 4).map((o) => row('bids:' + o.id, o.title || o.sol, (approvalTier(o) === 'owner' ? 'Majority owner' : 'Kobe') + ' · ' + money(oppPrice(o)) + ' · due ' + fmtDate(o.due), '<span class="badge b-red">Approve</span>')).join(''), 'Nothing waiting for approval.')}
+      ${block('Sub quotes outstanding', quotes.length, quotes.slice(0, 5).map(({ o, sid, q }) => row('bids:' + o.id, (data.subs[sid] || {}).company || 'Sub', (o.sol || o.title) + ' · need by ' + (q.dueOn || '?') + (q.chases ? ' · chased ' + q.chases + 'x' : ''), q.dueOn && q.dueOn < today ? '<span class="badge b-red">Late</span>' : '')).join(''), 'No quote requests waiting on a sub.')}
+      ${block('Contacts to touch', cold.length, cold.slice(0, 5).map(({ c, r }) => row('people:' + c.id, c.name || 'Contact', [c.role, c.agency].filter(Boolean).join(' · '), `<span class="badge ${r.k === 'cold' ? 'b-red' : 'b-gold'}">${r.k === 'cold' ? 'Cold ' + r.since + 'd' : 'Due'}</span>`)).join('') + (cold.length > 5 ? `<p class="kpi-sub" data-go="people" style="cursor:pointer;margin:6px 0 0">+ ${cold.length - 5} more</p>` : ''), 'Every contact is within its touch cadence.')}
+      ${block('Stale bids', staleWork.length + stale.length, staleWork.slice(0, 4).map((o) => row('bids:' + o.id, o.title || o.sol, 'not touched in ' + (-daysUntil(o.updatedAt)) + ' days · due ' + fmtDate(o.due), '')).join('') + (stale.length ? `<div class="deadline" data-filter="bids:Needs close-out" data-go2="bids"><div class="deadline-main"><div class="deadline-title">${stale.length} past due and never sent</div><div class="deadline-sub">Close them out as no-bid</div></div><span class="badge b-red">Close out</span></div>` : ''), 'No stale bids.')}
+    </div></div>`;
+  }
+
   function collectDeadlines() {
     const out = [];
-    const push = (view, r, date, kind, title) => { const days = daysUntil(date); if (days !== null && days <= 30 && days >= -7) out.push({ view, id: r.id, date: dayOf(date), days, kind, title }); };
-    liveOpps().filter((o) => !isPastOpp(o)).forEach((o) => push('bids', o, o.due, (o.status || 'found') === 'found' ? 'Found bid due' : isSS(o) ? 'Response due' : 'Bid due', o.title || o.sol));
+    const push = (view, r, date, kind, title, group, extra) => { const days = daysUntil(date); if (days !== null && days <= 30 && days >= -7) out.push({ view, id: r.id, date: dayOf(date), days, kind, title, group: group || 'fu', extra }); };
+    list('visits').filter((v) => v.status !== 'Done' && v.status !== 'Skipped').forEach((v) => push('visits', v, v.date, 'Site visit', v.title, 'fu', [v.time, v.location].filter(Boolean).join(' ')));
+    liveOpps().filter((o) => !isPastOpp(o)).forEach((o) => push('bids', o, o.due, (o.status || 'found') === 'found' ? 'Found bid due' : isSS(o) ? 'Response due' : 'Bid due', o.title || o.sol, 'bid', [methodTag(o.method), o.dueTime].filter(Boolean).join(' · ')));
     list('leads').filter((l) => !['Converted', 'Dead'].includes(l.status)).forEach((l) => push('leads', l, l.followUp, 'Follow up', l.name + (l.company ? ' — ' + l.company : '')));
     list('contacts').forEach((c) => push('people', c, c.nextFollow, 'Follow up', c.name + (c.agency ? ' — ' + c.agency : '')));
     list('jobs').filter((j) => j.status !== 'Complete').forEach((j) => { if (j.status === 'Scheduled') push('jobs', j, j.start, 'Job starts', j.title); push('jobs', j, j.due, 'Job due', j.title); });
@@ -458,7 +517,7 @@
     const total = rows.reduce((a, r) => a + (Number(c.value(r)) || 0), 0);
     const special = key === 'bids' ? Object.entries(SPECIAL).map(([k, fn]) => [k, items.filter(fn).length]).filter(([k, n]) => n || k === 'Working') : [];
     const chips = [...special, ['All', items.length], ...statusOpts.filter((s) => cnt(s)).map((s) => [s, cnt(s)])];
-    const extra = listExtras(key);
+    const extra = listExtras(key) + (key === 'bids' && f === 'Needs close-out' && rows.length ? `<div class="notice">These bids passed their due date and were never sent. Closing them as no-bid keeps them out of your open numbers. <button class="btn" data-action="closeout-all" style="margin-left:6px">Close all ${rows.length} as no-bid</button></div>` : '');
     return `
       <div class="toolbar">
         <input class="search" type="search" placeholder="Search ${c.label.toLowerCase()}…" value="${esc(ui.query[key] || '')}" data-search="${key}" />
@@ -518,6 +577,8 @@
       <div class="card-meta">
         ${status ? `<span class="badge ${STATUS_COLORS[status] || 'b-muted'}">${esc(status)}</span>` : ''}
         ${urgent ? `<span class="badge b-red">Due ${days === 0 ? 'today' : `in ${days}d`}</span>` : ''}
+        ${key === 'bids' && methodTag(r.method) ? `<span class="badge b-blue">${methodTag(r.method)}</span>` : ''}
+        ${key === 'bids' && needsApproval(r) ? `<span class="badge b-red">Needs ${approvalTier(r) === 'owner' ? 'owner' : 'Kobe'} approval</span>` : ''}
         ${meta.map(([k, val]) => `<span>${esc(k)} <b>${esc(val)}</b></span>`).join('')}
         ${link ? `<a class="lnk" href="${esc(link)}" target="_blank" rel="noopener" data-stop="1">Open notice ↗</a>` : ''}
       </div></article>`;
@@ -526,29 +587,77 @@
   function oppLine(x, src) {
     const n = daysUntil(x.due), w = qtWin(x), am = qtAmended(x), link = safeUrl(x.link);
     const tags = [x.noticeType || x.src, x.setAside, x.naics ? 'NAICS ' + x.naics : '', ui.view === 'quick' && w !== null ? `${w}-day window` : '', ui.view === 'quick' && am === true ? 'Amended' : ''].filter(Boolean);
+    const score = x.rank && x.rank.score != null ? `<span class="badge ${x.rank.score >= 70 ? 'b-green' : x.rank.score >= 50 ? 'b-gold' : 'b-muted'}">Score ${esc(x.rank.score)}</span>` : '';
+    const lock = !eligible(x) ? '<span class="badge b-red">Needs certification</span>' : '';
     return `<article class="card" ${src === 'opportunities' ? `data-open="bids:${esc(x.id)}"` : ''} style="${src === 'inbox' ? 'cursor:default' : ''}"><div class="opp-row">
       <div class="days ${n !== null && n <= 3 ? 'hot' : ''}">${n === null ? '--' : n}<small>${n === null ? 'no date' : n === 1 ? 'day left' : 'days left'}</small></div>
       <div style="min-width:0;flex:1"><div class="card-title">${esc(x.title || x.sol)}</div><div class="card-sub">${esc([x.sol, x.agency, x.place].filter(Boolean).join(' · '))}</div>
-      <div class="card-meta">${tags.map((t) => `<span class="badge b-purple">${esc(t)}</span>`).join('')}${src === 'opportunities' ? `<span class="badge ${STATUS_COLORS[x.status] || 'b-muted'}">In bids: ${esc(x.status || 'found')}</span>` : ''}</div>
+      <div class="card-meta">${score}${lock}${tags.map((t) => `<span class="badge b-purple">${esc(t)}</span>`).join('')}${src === 'opportunities' ? `<span class="badge ${STATUS_COLORS[x.status] || 'b-muted'}">In bids: ${esc(x.status || 'found')}</span>` : ''}</div>
       ${x.rank && x.rank.why ? `<div class="card-sub" style="margin-top:6px">${esc(x.rank.why)}</div>` : ''}
       ${src === 'inbox' ? `<div class="btn-row" style="margin-top:10px"><button class="btn primary" data-action="take" data-id="${esc(x.id)}">Add to bids</button><button class="btn" data-action="dismiss" data-id="${esc(x.id)}">Dismiss</button>${link ? `<a class="btn" href="${esc(link)}" target="_blank" rel="noopener" style="text-decoration:none">Open notice ↗</a>` : ''}</div>` : link ? `<div style="margin-top:8px"><a class="lnk" href="${esc(link)}" target="_blank" rel="noopener" data-stop="1">Open notice ↗</a></div>` : ''}
       </div></div></article>`;
   }
 
   function renderNew() {
-    const all = newItems();
+    const inbox = list('inbox').filter((x) => x.state === 'new');
+    const caOut = inbox.filter((x) => blockedPlace(x.place)).length;
+    const pool = newItems();
+    const elig = ui.elig || 'eligible';
+    const all = pool.filter((x) => elig === 'all' || (elig === 'eligible' ? eligible(x) : !eligible(x)));
     const shown = all.filter((x) => ui.level === 'all' || levelOf(x) === ui.level)
       .sort((a, b) => ((b.rank?.score ?? -1) - (a.rank?.score ?? -1)) || String(a.due || '9').localeCompare(String(b.due || '9')));
     const chip = (k, l) => `<button class="chip ${ui.level === k ? 'active' : ''}" data-level="${k}">${l}<span class="n">${k === 'all' ? all.length : all.filter((x) => levelOf(x) === k).length}</span></button>`;
-    return `<p style="color:var(--muted);margin:0 0 10px">New bids from your saved searches. Your Claude Pipeline pulls these each day, and they sync here.</p>
-      <div class="toolbar"><div class="chips">${chip('all', 'All')}${chip('local', 'Local')}${chip('state', 'State')}${chip('federal', 'Federal')}</div></div>
+    const echip = (k, l, n) => `<button class="chip ${elig === k ? 'active' : ''}" data-elig="${k}">${l}<span class="n">${n}</span></button>`;
+    const scored = all.filter((x) => x.rank && x.rank.score != null).length;
+    return `<p style="color:var(--muted);margin:0 0 10px">New bids from your saved searches, highest Claude score first. ${caOut} California bid${caOut === 1 ? ' is' : 's are'} excluded. ${scored} of ${all.length} have a score.</p>
+      <div class="toolbar"><div class="chips">${echip('eligible', 'KCAPEX can bid', pool.filter(eligible).length)}${echip('locked', 'Needs a certification', pool.filter((x) => !eligible(x)).length)}${echip('all', 'All', pool.length)}</div>
+      <div class="chips">${chip('all', 'All levels')}${chip('local', 'Local')}${chip('state', 'State')}${chip('federal', 'Federal')}</div></div>
       ${shown.length ? `<div class="cards">${shown.slice(0, 150).map((x) => oppLine(x, 'inbox')).join('')}</div>${shown.length > 150 ? `<p style="color:var(--muted)">Showing 150 of ${shown.length}. Filter by level to see more.</p>` : ''}` : '<div class="empty">Nothing new right now.</div>'}`;
   }
 
   function renderQuick() {
     const items = quickItems();
-    return `<p style="color:var(--muted);margin:0 0 10px">Bids with 1 to 8 days from posted to due (under 10 days if amended). Soonest first.</p>
+    return `<p style="color:var(--muted);margin:0 0 10px">Bids with 3 to 6 days from posted to due. Soonest first.</p>
       ${items.length ? `<div class="cards">${items.map((x) => oppLine(x, x._src)).join('')}</div>` : '<div class="empty">No open quick-turn bids right now.</div>'}`;
+  }
+
+  const chat = [];
+  function renderAsk() {
+    return `<p style="color:var(--muted);margin:0 0 10px">Ask about your bids, awards, subs and deadlines. Claude reads a snapshot of what's in this app.</p>
+      <div class="chat" id="chat">${chat.length ? chat.map((m) => `<div class="msg ${m.role}">${esc(m.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/^#+\s*/gm, '')}</div>`).join('') : '<div class="tempty">Try: "What should I work on today?" or "Which open bids have no sub quote yet?"</div>'}</div>
+      <div class="ask-row"><textarea id="ask-in" placeholder="Ask Claude…" rows="2"></textarea><button class="btn primary" data-action="ask" id="ask-btn">Send</button></div>`;
+  }
+  function snapshot() {
+    const o = liveOpps(), pick = (x) => ({ sol: x.sol, title: x.title, agency: x.agency, status: x.status, due: x.due, price: oppPrice(x) || null, method: methodTag(x.method), quotes: quoteSummary(x) || null, approval: needsApproval(x) ? approvalTier(x) : null });
+    return {
+      today: isoDay(), fiscalYear: 'FY27 runs 1 Oct 2026 to 30 Sep 2027', goals: GOALS,
+      working: o.filter((x) => ['reviewing', 'bid'].includes(x.status) && !isPastOpp(x)).map(pick),
+      submitted: o.filter((x) => x.status === 'submitted').map(pick),
+      foundOpen: o.filter((x) => (x.status || 'found') === 'found' && !isPastOpp(x)).slice(0, 40).map(pick),
+      needsCloseOut: o.filter((x) => ['found', 'reviewing', 'bid'].includes(x.status || 'found') && isPastOpp(x)).length,
+      lost: o.filter((x) => x.status === 'lost').map((x) => ({ sol: x.sol, title: x.title, ours: oppPrice(x) || null, winner: x.awardee || null, winningPrice: x.awardPrice || null })),
+      awards: awards().map((c) => ({ title: c.title, agency: c.agency, value: c.value, status: c.status, awardDate: c.awardDate, end: c.end })),
+      invoices: list('invoices').map((i) => ({ contract: (data.contracts[i.contractId] || {}).title, amount: i.amount, status: i.status, sent: i.sent })),
+      siteVisits: list('visits').map((v) => ({ title: v.title, date: v.date, time: v.time, location: v.location, status: v.status })),
+      quickTurn: quickItems().slice(0, 25).map((x) => ({ sol: x.sol, title: x.title, due: x.due, window: qtWin(x) })),
+      contactsToTouch: list('contacts').filter((c) => ['cold', 'due'].includes(relState(c).k)).slice(0, 30).map((c) => ({ name: c.name, agency: c.agency, role: c.role })),
+      subs: list('subs').map((x) => ({ company: x.company, trade: x.trade, area: x.area, rating: x.rating })),
+    };
+  }
+  async function askClaude() {
+    const inp = $('#ask-in'); const q = inp && inp.value.trim(); if (!q) return;
+    chat.push({ role: 'user', text: q }); chat.push({ role: 'assistant', text: 'Thinking…' }); render();
+    try {
+      const r = await fetch('/api/ask', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: chat.slice(0, -1).slice(-12).map((m) => ({ role: m.role, content: m.text })), snapshot: snapshot() }) });
+      const j = await r.json().catch(() => ({}));
+      chat[chat.length - 1].text = r.ok ? (j.text || '(no answer)') : (j.error || 'Claude could not answer right now.');
+    } catch (e) { chat[chat.length - 1].text = 'Could not reach Claude. Check your connection.'; }
+    if (ui.view === 'ask') { render(); const c = $('#chat'); if (c) c.scrollTop = c.scrollHeight; }
+  }
+  function syncLine(long) {
+    const m = window.kcMeta || {}; const t = (iso) => { if (!iso) return 'never'; const d = new Date(iso); return isNaN(d) ? 'never' : (isoDay(d) === isoDay() ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ') + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
+    return long ? `Last sync with Claude: <b>${t(m.lastSync)}</b>. App refreshed: <b>${t(m.pulledAt)}</b>. The sync runs at 6:40 AM and 7:40 PM Central.` : `Claude sync ${t(m.lastSync)}`;
   }
 
   function renderMore() {
@@ -558,11 +667,14 @@
         ${tile(EXTRA[0], `${n.new} new`)}${tile(EXTRA[1], `${n.quick} open`)}
         ${tile(EXTRA[2], `${list('contacts').length} contacts`)}${tile(EXTRA[3], `${list('subs').length} subcontractors`)}${tile(EXTRA[4], `${list('pastperf').length} past performance`)}
         ${tile(EXTRA[5], `${list('invoices').length} logged · ${n.invoices} unpaid`)}${tile(EXTRA[6], `${liveOpps().filter((o) => o.awardPrice || o.awardee).length} award results`)}
+        ${tile(EXTRA[7], `${n.visits} upcoming`)}${tile(EXTRA[8], 'Ask about your bids')}
       </div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Install on your phone</h2>
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Sync</h2><p>Bids, New, Quick-turn, People, Subs and Library sync with your KCAPEX Pipeline in Claude on a schedule. Leads, Jobs, Contracts, Invoices and Inbox live in this app and are shared across your devices.</p>
-        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div></div>`;
+        <p>${syncLine(true)}</p>
+        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><button class="btn" data-action="reload">Get the latest version</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div>
+        <p style="color:var(--muted);font-size:12px;margin-top:10px">App version ${APP_VERSION}</p></div>`;
   }
 
   // ---------- Modal / CRUD ----------
@@ -620,14 +732,25 @@
     const pt = pricingTotal(o);
     const intel = o.awardee || o.awardPrice ? `<div class="xrow"><span>Winner: <b>${esc(o.awardee || 'Not released')}</b></span>${o.awardPrice ? `<span>at <b>${money(o.awardPrice)}</b></span>` : ''}${o.awardPrice && oppPrice(o) ? `<span class="badge ${oppPrice(o) > o.awardPrice ? 'b-red' : 'b-green'}">ours ${money(oppPrice(o))} (${Math.round((oppPrice(o) - o.awardPrice) / o.awardPrice * 100)}%)</span>` : ''}</div>` : '';
     return `<div class="xboxes">
-      ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Needs the majority owner's approval</h4><p>Price is over $500K. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve">Mark approved</button></div>` : ''}
+      ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>${approvalTier(o) === 'owner' ? "Needs the majority owner's sign-off" : "Needs Kobe's approval"}</h4><p>${money(oppPrice(o))} · ${approvalTier(o) === 'owner' ? 'over $500K' : '$10K to $500K'}. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve" data-tier="${approvalTier(o)}">Mark approved by ${approvalTier(o) === 'owner' ? 'the majority owner' : 'Kobe'}</button></div>` : ''}
+      ${['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Past due and never sent</h4><p>Close it out so it stops counting as open.</p><button type="button" class="btn" data-action="nobid">Close as no-bid</button></div>` : ''}
       ${box('Subcontractors and quotes', (subs.length ? `<p>${esc(subs.join(' · '))}</p>` : '') + (quotes || (subs.length ? '<p style="color:var(--muted)">No quote requests logged.</p>' : '')))}
-      ${box('Pricing', pt ? `<p>${(o.pricing.lines || []).length} CLIN${(o.pricing.lines || []).length === 1 ? '' : 's'} · ${o.pricing.mode === 'margin' ? 'margin' : 'markup'} ${o.pricing.pct}% · total <b>${money(Math.round(pt))}</b></p>` : '')}
+      ${box('Pricing and margin', marginBox(o))}
       ${box('Submission', o.method || o.submittedOn ? `<p>${esc(o.method || '')}${o.submittedOn ? ' · submitted ' + esc(fmtDate(o.submittedOn)) : ''}</p>` : '')}
       ${box('Evaluation', o.evaluation ? `<p>${esc(typeof o.evaluation === 'string' ? o.evaluation : JSON.stringify(o.evaluation))}</p>` : '')}
       ${box('Price intel', intel)}
       ${o.followups && o.followups.lastReplyId && !o.followups.replyHandled ? `<div class="xbox"><h4>The contracting officer replied</h4><p>Last touch ${esc(fmtDate(o.followups.last))}. Answer it in Gmail, then clear it here.</p><button type="button" class="btn" data-action="replied">Mark replied</button></div>` : ''}
     </div>`;
+  }
+  function marginBox(o) {
+    const lines = (o.pricing && Array.isArray(o.pricing.lines)) ? o.pricing.lines : [];
+    const cost = lines.reduce((a, l) => a + (Number(l.cost) || 0), 0), price = pricingTotal(o);
+    const subQ = Object.values(o.quotes || {}).filter((q) => q.status === 'received' && q.amount).reduce((a, q) => a + Number(q.amount), 0);
+    const ours = Number(o.ourPrice) || price;
+    const base = cost || subQ;
+    if (!ours && !base) return '';
+    const m = ours && base ? Math.round((ours - base) / ours * 1000) / 10 : null;
+    return `<p>Our price <b>${ours ? money(Math.round(ours)) : '—'}</b> · sub cost <b>${base ? money(Math.round(base)) : '—'}</b>${m !== null ? ` · margin <b style="color:${m < 5 ? 'var(--red)' : 'var(--green)'}">${m}%</b>` : ''}</p>${lines.length ? `<p style="color:var(--muted)">${lines.length} CLIN${lines.length === 1 ? '' : 's'} on the pricing sheet · ${o.pricing.mode === 'margin' ? 'margin' : 'markup'} ${o.pricing.pct}%</p>` : ''}`;
   }
   function contractExtras(cid) {
     const inv = list('invoices').filter((i) => i.contractId === cid).sort((a, b) => String(b.sent || '').localeCompare(String(a.sent || '')));
@@ -652,12 +775,13 @@
   // ---------- Events ----------
   document.addEventListener('click', async (e) => {
     if (e.target.closest('[data-stop]')) return; // links inside cards
-    const t = e.target.closest('[data-go],[data-open],[data-filter],[data-action],[data-level]');
+    const t = e.target.closest('[data-go],[data-open],[data-filter],[data-action],[data-level],[data-elig]');
     if (!t) return;
     if (t.dataset.go) return go(t.dataset.go);
     if (t.dataset.open) { const i = t.dataset.open.indexOf(':'); return openForm(t.dataset.open.slice(0, i), t.dataset.open.slice(i + 1)); }
     if (t.dataset.filter) { const i = t.dataset.filter.indexOf(':'); ui.filter[t.dataset.filter.slice(0, i)] = t.dataset.filter.slice(i + 1); return t.dataset.go2 ? go(t.dataset.go2) : render(); }
     if (t.dataset.level) { ui.level = t.dataset.level; return render(); }
+    if (t.dataset.elig) { ui.elig = t.dataset.elig; return render(); }
     const a = t.dataset.action;
     if (a === 'close') modal.close();
     else if (a === 'new') openForm(ui.view);
@@ -667,10 +791,21 @@
       if (await removeDoc(c.coll, editing.id)) { modal.close(); toast('Deleted'); }
     } else if (a === 'approve' || a === 'replied') {
       const id = editing.id, o = data.opportunities[id]; if (!o) return;
-      const body = { ...o, notes: [...(Array.isArray(o.notes) ? o.notes : []), { t: new Date().toLocaleString(), text: a === 'approve' ? 'Approved by the majority owner (bid over $500K), from the phone app.' : 'Contracting officer reply answered, from the phone app.' }] };
+      const body = { ...o, notes: [...(Array.isArray(o.notes) ? o.notes : []), { t: new Date().toLocaleString(), text: a === 'approve' ? (t.dataset.tier === 'owner' ? 'Approved by the majority owner (bid over $500K), from the phone app.' : 'Approved by Kobe ($10K to $500K), from the phone app.') : 'Contracting officer reply answered, from the phone app.' }] };
       if (a === 'replied') body.followups = { ...o.followups, replyHandled: o.followups.lastReplyId };
       if (await saveDoc('opportunities', id, body)) { modal.close(); toast(a === 'approve' ? 'Marked approved' : 'Marked replied'); }
-    } else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
+    } else if (a === 'nobid') {
+      const o = data.opportunities[editing.id]; if (!o) return;
+      if (await saveDoc('opportunities', editing.id, { ...o, status: 'no-bid', notes: [...(Array.isArray(o.notes) ? o.notes : []), { t: new Date().toLocaleString(), text: 'Closed as no-bid: due date passed without a submission (phone app).' }] })) { modal.close(); toast('Closed as no-bid'); }
+    } else if (a === 'closeout-all') {
+      const stale = liveOpps().filter((o) => ['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o));
+      if (!stale.length || !confirm(`Close ${stale.length} past-due bids as no-bid? They were never submitted.`)) return;
+      t.disabled = true; let n = 0;
+      for (const o of stale) { const { id, ...rest } = o; if (await saveDoc('opportunities', id, { ...rest, status: 'no-bid', notes: [...(Array.isArray(rest.notes) ? rest.notes : []), { t: new Date().toLocaleString(), text: 'Closed as no-bid: due date passed without a submission (phone app).' }] })) n++; }
+      toast(`Closed ${n} as no-bid`);
+    } else if (a === 'ask') { askClaude(); }
+    else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); } catch (_) { /* ignore */ } location.reload(); }
+    else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
     else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
     else if (a === 'dismiss') { const x = data.inbox[t.dataset.id]; if (x && await saveDoc('inbox', t.dataset.id, { ...x, state: 'dismissed' })) toast('Dismissed'); }
     else if (a === 'export') exportData();
@@ -698,8 +833,10 @@
     db = d;
     DBC.forEach((c) => d.collection(c).onSnapshot((snap) => {
       const m = {}; snap.docs.forEach((s) => { const b = s.data(); if (b && !b.deleted) m[s.id] = b; });
-      data[c] = m; $('#sync').textContent = 'Synced'; scheduleRender();
+      data[c] = m; $('#sync').textContent = syncLine(false); scheduleRender();
     }, () => { $('#sync').textContent = 'Offline'; }));
   });
+  window.addEventListener('kc-meta', () => { $('#sync').textContent = syncLine(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && e.target.id === 'ask-in') { e.preventDefault(); askClaude(); } });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 })();

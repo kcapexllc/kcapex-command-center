@@ -4,11 +4,12 @@ The KCAPEX Pipeline (bids, quick-turn, past bids, people, subs, library) as an i
 It is hosted on Netlify at https://kcapex-command-center.netlify.app behind a password.
 
 ## How it is built
-- `index.html` is the KCAPEX Pipeline page from Claude, plus phone-app tags (manifest, icons, service worker).
-- `claude-shim.js` stands in for the Claude artifact runtime. Its database calls go to `/api/db`.
-  Claude-only features (AI drafting and scoring, Tango pulls for the New tab) are hidden.
+- `index.html`, `styles.css` and `app.js` hold the Command Center dashboard (Home, Bids, Leads, Jobs, Contracts, Inbox, plus New, Quick-turn, People, Subs and Library under More), in purple.
+- Bids, New, Quick-turn, People, Subs and Library read and write the KCAPEX Pipeline collections, which sync with Claude.
+  Leads, Jobs, Contracts and Inbox are app-only collections, shared across devices.
+- `claude-shim.js` provides the database client (`window.claude.use('db')`), backed by `/api/db`.
 - `netlify/functions/db.mjs` is the database: one Netlify Blobs entry per collection
-  (opportunities, contacts, subs, pastperf, tasks, feeds, inbox, portals, settings).
+  (Pipeline: opportunities, contacts, subs, pastperf, tasks, feeds, inbox, portals, settings; app-only: leads, jobs, contracts, messages).
 - `netlify/edge-functions/auth.ts` is the password gate. The password is the Netlify environment variable `APP_PASSWORD`.
   It also strips Netlify's free-plan badge script from pages.
 - `sw.js` caches the app shell for offline use. It never caches `/api/` data calls.

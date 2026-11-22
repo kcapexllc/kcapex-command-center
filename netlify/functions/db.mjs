@@ -5,7 +5,7 @@
 import { getStore } from "@netlify/blobs";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-const COLLS = ["opportunities", "contacts", "subs", "pastperf", "tasks", "feeds", "inbox", "portals", "settings"];
+const COLLS = ["opportunities", "contacts", "subs", "pastperf", "tasks", "feeds", "inbox", "portals", "settings", "leads", "jobs", "contracts", "messages"];
 const ID = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
 
 const json = (body, status = 200) =>

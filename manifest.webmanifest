@@ -1,5 +1,5 @@
 {
-  "name": "KCAPEX Pipeline",
+  "name": "KCAPEX Command Center",
   "short_name": "KCAPEX",
   "description": "KCAPEX internal GovCon pipeline: bids, quick-turn, follow-ups, people, subs and past performance.",
   "start_url": "./index.html",

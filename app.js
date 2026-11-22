@@ -38,7 +38,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-1';
+  const APP_VERSION = '2026.11.23-2';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   let db = null;
   const list = (c) => Object.entries(data[c]).map(([id, d]) => ({ id, ...d }));
@@ -697,99 +697,97 @@
       ${!streaming && m.text ? `<div class="mtools"><button class="copy" data-copy="${idx}">Copy</button>${last && !m.error ? '' : ''}</div>` : ''}${!streaming && last && m.error ? '<div class="mtools"><button class="copy" data-action="chat-retry">Try again</button></div>' : ''}</div>`;
   }
 
-  // ---------- Projects (like Claude Projects) ----------
-  // One project per bid: its solicitation files and instructions travel with every chat inside it.
-  let projView = null, chatProject = null, projEdit = false, projMenu = null, projBusy = 0;
-  const projList = () => Object.entries(data.projects || {}).map(([id, p]) => ({ id, ...p }));
+  // ---------- Bid folders (like Claude Projects) ----------
+  // Every working bid has a folder automatically: its solicitation files, instructions and every chat about it.
+  // Anything that isn't about a bid stays a plain chat. Folder extras (files, instructions, pin) are saved in
+  // the "projects" collection under "bid-<bid id>" the first time they're used.
+  let projView = null, chatProject = null, projMenu = null, projBusy = 0;
+  const FOLDER_OPEN = ['reviewing', 'bid', 'submitted'];
+  const folderId = (bidId) => 'bid-' + bidId;
+  function folder(pid) {
+    if (!pid || !String(pid).startsWith('bid-')) return null;
+    const bidId = String(pid).slice(4), o = data.opportunities[bidId]; if (!o) return null;
+    const extra = data.projects[pid] || {};
+    return { id: pid, bidId, bid: o, name: [o.sol, o.title].filter(Boolean).join(' – ').slice(0, 120) || 'Bid', description: [o.agency, o.place].filter(Boolean).join(' · '),
+      files: extra.files || [], instructions: extra.instructions || '', pinned: !!extra.pinned, updatedAt: extra.updatedAt,
+      closed: !FOLDER_OPEN.includes(o.status || 'found') || (o.status !== 'submitted' && isPastOpp(o)) };
+  }
   const projChats = (pid) => Object.entries(data.chats || {}).map(([id, c]) => ({ id, ...c })).filter((c) => c.projectId === pid).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-  const curProjectId = () => { const c = chatId && data.chats && data.chats[chatId]; const id = c ? c.projectId : chatProject; return id && data.projects && data.projects[id] ? id : null; };
+  function folderList() {
+    const ids = new Set(liveOpps().filter((o) => FOLDER_OPEN.includes(o.status)).map((o) => folderId(o.id)));
+    Object.keys(data.projects || {}).forEach((id) => ids.add(id));
+    Object.values(data.chats || {}).forEach((c) => { if (c.projectId) ids.add(c.projectId); });
+    return [...ids].map(folder).filter(Boolean).map((f) => { const ch = projChats(f.id)[0]; return { ...f, last: [f.updatedAt, ch && ch.updatedAt].filter(Boolean).sort().pop() }; });
+  }
+  const curProjectId = () => { const c = chatId && data.chats && data.chats[chatId]; const id = c ? c.projectId : chatProject; return folder(id) ? id : null; };
   const ago = (iso) => { const d = new Date(iso || 0), s = (Date.now() - d) / 1000; if (!iso || isNaN(d)) return ''; if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`; if (s < 86400) return `${Math.round(s / 3600)} hours ago`; if (s < 604800) return `${Math.round(s / 86400)} days ago`; return `${Math.round(s / 604800)} weeks ago`; };
-  function projSub(p) {
-    const o = p.bidId && data.opportunities[p.bidId];
-    const due = o && o.due ? `Due ${new Date(String(o.due).slice(0, 10) + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : (p.description || '');
-    return [due, ago(p.updatedAt)].filter(Boolean).join(' · ');
-  }
+  const dueTxt = (o) => o && o.due ? `Due ${new Date(String(o.due).slice(0, 10) + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}${o.dueTime ? ' ' + o.dueTime : ''}` : 'No due date';
   function projPayload(pid) {
-    const p = pid && data.projects[pid]; if (!p) return null;
-    return { name: p.name, description: p.description || '', instructions: p.instructions || '', bidId: p.bidId || '', fileRefs: (p.files || []).map((f) => ({ id: f.id, name: f.name })) };
+    const f = folder(pid); if (!f) return null;
+    return { name: f.name, description: f.description, instructions: f.instructions, bidId: f.bidId, fileRefs: f.files.map((x) => ({ id: x.id, name: x.name })) };
   }
-  async function createProject(body) {
-    const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const doc = { name: body.name, description: body.description || '', bidId: body.bidId || '', instructions: body.instructions || '', files: [], pinned: false, archived: false };
-    if (await saveDoc('projects', id, doc)) { data.projects = { ...(data.projects || {}), [id]: doc }; return id; }
-    return null;
-  }
-  const projectForBid = (bidId) => (projList().find((p) => p.bidId === bidId && !p.deleted) || {}).id;
-  function bidProjectBody(o, id) {
-    return { name: [o.sol, o.title].filter(Boolean).join(' – ').slice(0, 120) || 'Bid', description: [o.agency, o.place].filter(Boolean).join(' · ').slice(0, 200), bidId: id };
-  }
-  const openProject = (id) => { projView = id; projEdit = false; projMenu = null; if (ui.view !== 'ask') go('ask'); else { render(); window.scrollTo({ top: 0 }); } };
+  const saveFolder = (pid, patch) => saveDoc('projects', pid, { ...(data.projects[pid] || {}), ...patch });
+  const openProject = (id) => { projView = id; projMenu = null; if (ui.view !== 'ask') go('ask'); else { render(); window.scrollTo({ top: 0 }); } };
 
   function renderProjects() {
-    const q = (ui.query.projects || '').toLowerCase(), filt = ui.projFilter || 'active';
-    const all = projList(), act = all.filter((p) => !p.archived), arc = all.filter((p) => p.archived);
-    const shown = (filt === 'active' ? act : arc).filter((p) => !q || `${p.name} ${p.description}`.toLowerCase().includes(q))
-      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    const missing = liveOpps().filter((o) => ['reviewing', 'bid', 'submitted'].includes(o.status) && !isPastOpp(o) && !projectForBid(o.id));
-    const row = (p) => `<div class="proj-row ${projMenu === p.id ? 'open' : ''}"><button class="pr-open" data-proj="${esc(p.id)}"><span class="pr-ic">${p.pinned ? '📌' : '📁'}</span><span class="pr-tx"><b>${esc(p.name)}</b><em>${esc(projSub(p))}</em></span></button><button class="pr-more" data-proj-menu="${esc(p.id)}" aria-label="Project options">⋯</button>
-      ${projMenu === p.id ? `<div class="pr-menu"><button data-proj-do="pin:${esc(p.id)}">${p.pinned ? 'Unpin' : '📌 Pin'}</button><button data-proj-do="edit:${esc(p.id)}">✎ Edit details</button><button data-proj-do="archive:${esc(p.id)}">${p.archived ? 'Unarchive' : '🗄 Archive'}</button><button class="danger" data-proj-do="delete:${esc(p.id)}">🗑 Delete</button></div>` : ''}</div>`;
-    return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-back">‹ Chat</button><div class="chat-title">Projects</div><button class="btn primary" data-action="proj-new">＋ New project</button></div>
-      <input class="proj-search" data-search="projects" placeholder="Search projects" value="${esc(ui.query.projects || '')}" />
-      <div class="chips" style="margin:8px 0"><button class="chip ${filt === 'active' ? 'active' : ''}" data-proj-filter="active">Active<span class="n">${act.length}</span></button><button class="chip ${filt === 'archived' ? 'active' : ''}" data-proj-filter="archived">Archived<span class="n">${arc.length}</span></button></div>
-      ${missing.length && filt === 'active' ? `<div class="notice">${missing.length} working bid${missing.length === 1 ? ' doesn’t have' : 's don’t have'} a project yet. <button class="btn" data-action="proj-addbids">Make ${missing.length === 1 ? 'it a project' : 'them projects'}</button></div>` : ''}
-      <div class="proj-list">${shown.length ? shown.map(row).join('') : `<div class="tempty">${q ? 'No projects match.' : filt === 'archived' ? 'No archived projects.' : 'No projects yet. Make one for each bid you work: its files and instructions stay with every chat about it.'}</div>`}</div></div>`;
+    const q = (ui.query.projects || '').toLowerCase(), filt = ui.projFilter || 'open';
+    const all = folderList(), open = all.filter((f) => !f.closed), closed = all.filter((f) => f.closed);
+    const shown = (filt === 'open' ? open : closed).filter((f) => !q || `${f.name} ${f.description}`.toLowerCase().includes(q))
+      .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (filt === 'open' ? String(a.bid.due || '9').localeCompare(String(b.bid.due || '9')) : String(b.last || '').localeCompare(String(a.last || ''))));
+    const row = (f) => `<div class="proj-row ${projMenu === f.id ? 'open' : ''}"><button class="pr-open" data-proj="${esc(f.id)}"><span class="pr-ic">${f.pinned ? '📌' : '📁'}</span><span class="pr-tx"><b>${esc(f.name)}</b><em>${esc([f.closed ? (f.bid.status || 'closed') : dueTxt(f.bid), projChats(f.id).length ? `${projChats(f.id).length} chats` : '', f.files.length ? `${f.files.length} files` : '', ago(f.last)].filter(Boolean).join(' · '))}</em></span></button><button class="pr-more" data-proj-menu="${esc(f.id)}" aria-label="Folder options">⋯</button>
+      ${projMenu === f.id ? `<div class="pr-menu"><button data-proj-do="pin:${esc(f.id)}">${f.pinned ? 'Unpin' : '📌 Pin'}</button><button data-open="bids:${esc(f.bidId)}">✎ Open bid</button></div>` : ''}</div>`;
+    return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-back">‹ Chat</button><div class="chat-title">Bid folders</div><span></span></div>
+      <p class="muted" style="margin:0 0 8px">Every bid you're working has a folder. Its files, instructions and chats stay together. Other questions are just chats.</p>
+      <input class="proj-search" data-search="projects" placeholder="Search bids" value="${esc(ui.query.projects || '')}" />
+      <div class="chips" style="margin:8px 0"><button class="chip ${filt === 'open' ? 'active' : ''}" data-proj-filter="open">Open<span class="n">${open.length}</span></button><button class="chip ${filt === 'closed' ? 'active' : ''}" data-proj-filter="closed">Closed<span class="n">${closed.length}</span></button></div>
+      <div class="proj-list">${shown.length ? shown.map(row).join('') : `<div class="tempty">${q ? 'No bids match.' : filt === 'closed' ? 'No closed bid folders yet.' : 'No bids in progress. When a bid moves to Reviewing, Bid or Submitted, its folder appears here.'}</div>`}</div></div>`;
   }
 
   function renderProject(id) {
-    const p = data.projects[id]; if (!p) { projView = 'list'; return renderProjects(); }
-    const o = p.bidId && data.opportunities[p.bidId];
-    const chats = projChats(id), files = p.files || [];
-    const edit = projEdit ? `<div class="panel proj-edit"><label>Name<input id="pe-name" value="${esc(p.name)}" /></label><label>Description<input id="pe-desc" value="${esc(p.description || '')}" placeholder="Agency, location, anything to remember" /></label>
-      <label>Linked bid<select id="pe-bid"><option value="">None</option>${liveOpps().filter((x) => ACTIVE.includes(x.status || 'found') || x.id === p.bidId).slice(0, 300).map((x) => `<option value="${esc(x.id)}" ${x.id === p.bidId ? 'selected' : ''}>${esc([x.sol, x.title].filter(Boolean).join(' – ').slice(0, 80))}</option>`).join('')}</select></label>
-      <div class="btn-row"><button class="btn primary" data-action="proj-save">Save</button><button class="btn" data-action="proj-cancel">Cancel</button></div></div>` : '';
-    return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-list">‹ Projects</button><div class="chat-title"></div><button class="btn" data-proj-do="edit:${esc(id)}">✎ Edit</button></div>
-      <div class="proj-top"><span class="pr-ic big">📁</span><div><h2>${esc(p.name)}</h2>${p.description ? `<p>${esc(p.description)}</p>` : ''}${o ? `<p class="proj-bid">${esc(o.status || 'found')} · ${o.due ? 'due ' + esc(String(o.due).slice(0, 10)) : 'no due date'} · <button class="linkish" data-open="bids:${esc(p.bidId)}">Open bid</button></p>` : ''}</div></div>
-      ${edit}
-      <button class="btn primary proj-newchat" data-action="proj-chat">＋ New chat in this project</button>
-      <div class="panel proj-sec"><h3>Chats <span class="n">${chats.length}</span></h3>${chats.length ? chats.map((c) => `<button class="pc-row" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(ago(c.updatedAt))} · ${(c.messages || []).length} messages</span></button>`).join('') : '<p class="muted">No chats yet. Start one above; Claude will have this project’s files and instructions.</p>'}</div>
+    const f = folder(id); if (!f) { projView = 'list'; return renderProjects(); }
+    const o = f.bid, chats = projChats(id), files = f.files;
+    return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-list">‹ Bid folders</button><div class="chat-title"></div><button class="btn" data-open="bids:${esc(f.bidId)}">✎ Bid</button></div>
+      <div class="proj-top"><span class="pr-ic big">📁</span><div><h2>${esc(f.name)}</h2>${f.description ? `<p>${esc(f.description)}</p>` : ''}<p class="proj-bid">${esc(o.status || 'found')} · ${esc(dueTxt(o))}</p></div></div>
+      <button class="btn primary proj-newchat" data-action="proj-chat">＋ New chat about this bid</button>
+      <div class="panel proj-sec"><h3>Chats <span class="n">${chats.length}</span></h3>${chats.length ? chats.map((c) => `<button class="pc-row" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(ago(c.updatedAt))} · ${(c.messages || []).length} messages</span></button>`).join('') : '<p class="muted">No chats yet. Start one above; Claude will have this bid’s files and instructions.</p>'}</div>
       <div class="panel proj-sec"><h3>Files <span class="n">${files.length} of ${MAX_FILES}</span></h3>
-        ${files.map((f, i) => `<div class="pf-row"><span>${f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.label ? ` <em>${esc(f.label)}</em>` : ''}</span><button data-pfile-x="${i}" aria-label="Remove">✕</button></div>`).join('') || '<p class="muted">Add the solicitation, PWS, wage determinations, price schedule and exhibits. Every chat here reads them.</p>'}
+        ${files.map((x, i) => `<div class="pf-row"><span>${x.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(x.name)}${x.label ? ` <em>${esc(x.label)}</em>` : ''}</span><button data-pfile-x="${i}" aria-label="Remove">✕</button></div>`).join('') || '<p class="muted">Add the solicitation, PWS, wage determinations, price schedule and exhibits. Every chat in this folder reads them.</p>'}
         ${projBusy ? `<p class="muted">⏳ Adding ${projBusy} file${projBusy === 1 ? '' : 's'}…</p>` : ''}
         <button class="btn" data-action="proj-attach" ${files.length >= MAX_FILES ? 'disabled' : ''}>📎 Add files</button>
         <input type="file" id="proj-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden /></div>
-      <div class="panel proj-sec"><h3>Instructions</h3><p class="muted">What Claude should always keep in mind in this project.</p>
-        <textarea id="proj-instr" rows="4" placeholder="e.g. Price janitorial with WD 2015-4761. Use KG Grounds as the mowing sub. Keep emails short.">${esc(p.instructions || '')}</textarea>
+      <div class="panel proj-sec"><h3>Instructions</h3><p class="muted">What Claude should always keep in mind for this bid.</p>
+        <textarea id="proj-instr" rows="4" placeholder="e.g. Price janitorial with WD 2015-4761. Use KG Grounds as the mowing sub. Keep emails short.">${esc(f.instructions)}</textarea>
         <button class="btn" data-action="proj-instr-save">Save instructions</button></div></div>`;
   }
 
   async function addProjectFiles(pid, list) {
-    const p = data.projects[pid]; if (!p) return;
-    const room = MAX_FILES - (p.files || []).length;
-    if (room <= 0) { toast(`A project holds up to ${MAX_FILES} files.`); return; }
-    if (list.length > room) toast(`A project holds up to ${MAX_FILES} files. Adding the first ${room}.`);
+    const f = folder(pid); if (!f) return;
+    const room = MAX_FILES - f.files.length;
+    if (room <= 0) { toast(`A bid folder holds up to ${MAX_FILES} files.`); return; }
+    if (list.length > room) toast(`A bid folder holds up to ${MAX_FILES} files. Adding the first ${room}.`);
     const take = list.slice(0, room); projBusy += take.length; render();
     const added = [];
-    for (const f of take) {
-      try { const a = await prepFile(f); added.push(await uploadFile(a)); }
-      catch (e) { toast(e.message || `Couldn't add ${f.name}`); }
+    for (const file of take) {
+      try { added.push(await uploadFile(await prepFile(file))); }
+      catch (e) { toast(e.message || `Couldn't add ${file.name}`); }
       projBusy--; render();
     }
-    if (added.length) { const cur = data.projects[pid]; await saveDoc('projects', pid, { ...cur, files: [...(cur.files || []), ...added] }); toast(`Added ${added.length} file${added.length === 1 ? '' : 's'} to the project`); }
+    if (added.length) { await saveFolder(pid, { files: [...(folder(pid).files || []), ...added] }); toast(`Added ${added.length} file${added.length === 1 ? '' : 's'} to the bid folder`); }
     render();
   }
 
   function renderAsk() {
     if (projView === 'list') return renderProjects();
     if (projView) return renderProject(projView);
-    const all = Object.entries(data.chats || {}).map(([id, c]) => ({ id, ...c })).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    const all = Object.entries(data.chats || {}).map(([id, c]) => ({ id, ...c })).filter((c) => !folder(c.projectId)).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     const msgs = curMsgs(); const cur = chatId && data.chats ? data.chats[chatId] : null;
-    const pid = curProjectId(), pj = pid && data.projects[pid];
-    const head = `<div class="chat-head"><button class="btn" data-action="proj-list">📁 Projects</button><button class="btn" data-action="chat-list">☰ Chats${all.length ? ` <span class="n">${all.length}</span>` : ''}</button>
+    const pid = curProjectId(), pj = folder(pid);
+    const head = `<div class="chat-head"><button class="btn" data-action="proj-list">📁 Bids</button><button class="btn" data-action="chat-list">☰ Chats${all.length ? ` <span class="n">${all.length}</span>` : ''}</button>
       <div class="chat-title">${esc((cur && cur.title) || '')}</div>
       <button class="btn" data-action="chat-new" ${chatBusy ? 'disabled' : ''} aria-label="New chat" title="New chat">＋ New</button></div>
-      ${pj ? `<button class="proj-chip" data-proj="${esc(pid)}">📁 ${esc(pj.name)} <span>· ${(pj.files || []).length} files ›</span></button>` : ''}`;
-    const listHtml = showChats ? `<div class="chat-list">${all.length ? all.map((c) => `<div class="chat-item ${c.id === chatId ? 'on' : ''}"><button class="ci-open" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${c.projectId && data.projects[c.projectId] ? `📁 ${esc(data.projects[c.projectId].name.slice(0, 28))} · ` : ''}${esc(new Date(c.updatedAt || Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${(c.messages || []).length} messages</span></button><button class="ci-act" data-chat-move="${esc(c.id)}" title="Move to a project">📁</button><button class="ci-act" data-chat-rename="${esc(c.id)}" title="Rename">✎</button><button class="ci-act" data-chat-del="${esc(c.id)}" title="Delete">🗑</button></div>`).join('') : '<div class="tempty">No saved chats yet.</div>'}</div>` : '';
-    const empty = pj ? `<div class="chat-hello"><div class="spark">📁</div><h2>${esc(pj.name)}</h2><p>New chat in this project. Claude has its ${(pj.files || []).length} file${(pj.files || []).length === 1 ? '' : 's'}${pj.instructions ? ' and instructions' : ''}.</p>
+      ${pj ? `<button class="proj-chip" data-proj="${esc(pid)}">📁 ${esc(pj.name)} <span>· ${pj.files.length} files ›</span></button>` : ''}`;
+    const listHtml = showChats ? `<div class="chat-list">${all.length ? all.map((c) => `<div class="chat-item ${c.id === chatId ? 'on' : ''}"><button class="ci-open" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(new Date(c.updatedAt || Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))} · ${(c.messages || []).length} messages</span></button><button class="ci-act" data-chat-move="${esc(c.id)}" title="Move to a bid folder">📁</button><button class="ci-act" data-chat-rename="${esc(c.id)}" title="Rename">✎</button><button class="ci-act" data-chat-del="${esc(c.id)}" title="Delete">🗑</button></div>`).join('') : '<div class="tempty">No saved chats yet.</div>'}</div>` : '';
+    const empty = pj ? `<div class="chat-hello"><div class="spark">📁</div><h2>${esc(pj.name)}</h2><p>New chat about this bid. Claude has its ${pj.files.length} file${pj.files.length === 1 ? '' : 's'}${pj.instructions ? ', instructions' : ''} and the bid record.</p>
       <div class="chips"><button class="chip" data-quick="Give me a bid summary: scope, due date and how to submit, site visit, evaluation, what I must price, wage rates, required forms, and whether KCAPEX should bid.">Bid summary</button><button class="chip" data-quick="Make a compliance checklist of everything the quote must include, with the section or page for each.">Compliance checklist</button><button class="chip" data-quick="Draft questions to the contracting officer about anything unclear or conflicting in this solicitation.">Questions for the CO</button><button class="chip" data-quick="Help me build the price: list each line I must price, the labor and wage rates that drive it, and what I need from subs.">Build my price</button></div></div>` : `<div class="chat-hello"><div class="spark">${icon('ask')}</div><h2>How can I help, Kobe?</h2>
       <p>I can see your bids, awards, invoices, subs and deadlines. Attach a solicitation package (PDFs, Word files, photos), ask me to search the web, draft an email, or update a record.</p>
       <div class="chips">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
@@ -848,7 +846,7 @@
     const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
     const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}) })).slice(-60);
     const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean, ...(prev.projectId || chatProject ? { projectId: prev.projectId || chatProject } : {}) };
-    const pr = body.projectId && data.projects[body.projectId]; if (pr) saveDoc('projects', body.projectId, { ...pr });
+
     data.chats = { ...(data.chats || {}), [chatId]: body };
     await saveDoc('chats', chatId, body);
   }
@@ -1021,7 +1019,7 @@
         ${tile(EXTRA[0], `${n.new} new`)}${tile(EXTRA[1], `${n.quick} open`)}
         ${tile(EXTRA[2], `${list('contacts').length} contacts`)}${tile(EXTRA[3], `${list('subs').length} subcontractors`)}${tile(EXTRA[4], `${list('pastperf').length} past performance`)}
         ${tile(EXTRA[5], `${list('invoices').length} logged · ${n.invoices} unpaid`)}${tile(EXTRA[6], `${liveOpps().filter((o) => o.awardPrice || o.awardee).length} award results`)}
-        ${tile(EXTRA[7], `${n.visits} upcoming`)}${tile(EXTRA[8], 'Ask about your bids')}<button class="tile" data-action="proj-open-list">📁<b>Projects</b><span>${projList().filter((p) => !p.archived).length} active</span></button>
+        ${tile(EXTRA[7], `${n.visits} upcoming`)}${tile(EXTRA[8], 'Ask about your bids')}<button class="tile" data-action="proj-open-list">📁<b>Bid folders</b><span>${folderList().filter((f) => !f.closed).length} open</span></button>
       </div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Install on your phone</h2>
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>
@@ -1087,7 +1085,7 @@
     const intel = o.awardee || o.awardPrice ? `<div class="xrow"><span>Winner: <b>${esc(o.awardee || 'Not released')}</b></span>${o.awardPrice ? `<span>at <b>${money(o.awardPrice)}</b></span>` : ''}${o.awardPrice && oppPrice(o) ? `<span class="badge ${oppPrice(o) > o.awardPrice ? 'b-red' : 'b-green'}">ours ${money(oppPrice(o))} (${Math.round((oppPrice(o) - o.awardPrice) / o.awardPrice * 100)}%)</span>` : ''}</div>` : '';
     return `<div class="xboxes">
       <button type="button" class="btn askbid" data-action="ask-bid">${icon('ask')} Ask Claude about this bid</button>
-      <button type="button" class="btn" data-action="bid-project">📁 ${projectForBid(editing && editing.id) ? 'Open this bid’s project' : 'Make a project for this bid'}</button>
+      <button type="button" class="btn" data-action="bid-project">📁 Open bid folder</button>
       ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>${approvalTier(o) === 'owner' ? "Needs the majority owner's sign-off" : "Needs Kobe's approval"}</h4><p>${money(oppPrice(o))} · ${approvalTier(o) === 'owner' ? 'over $500K' : '$10K to $500K'}. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve" data-tier="${approvalTier(o)}">Mark approved by ${approvalTier(o) === 'owner' ? 'the majority owner' : 'Kobe'}</button></div>` : ''}
       ${['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Past due and never sent</h4><p>Close it out so it stops counting as open.</p><button type="button" class="btn" data-action="nobid">Close as no-bid</button></div>` : ''}
       ${box('Subcontractors and quotes', (subs.length ? `<p>${esc(subs.join(' · '))}</p>` : '') + (quotes || (subs.length ? '<p style="color:var(--muted)">No quote requests logged.</p>' : '')))}
@@ -1138,18 +1136,15 @@
     const pm = e.target.closest('[data-proj-menu]'); if (pm) { projMenu = projMenu === pm.dataset.projMenu ? null : pm.dataset.projMenu; render(); return; }
     const pf = e.target.closest('[data-proj-filter]'); if (pf) { ui.projFilter = pf.dataset.projFilter; projMenu = null; render(); return; }
     const pd = e.target.closest('[data-proj-do]'); if (pd) {
-      const [act, id] = [pd.dataset.projDo.split(':')[0], pd.dataset.projDo.slice(pd.dataset.projDo.indexOf(':') + 1)]; const p = data.projects[id]; projMenu = null; if (!p) return;
-      if (act === 'pin') await saveDoc('projects', id, { ...p, pinned: !p.pinned });
-      else if (act === 'archive') { await saveDoc('projects', id, { ...p, archived: !p.archived }); toast(p.archived ? 'Unarchived' : 'Archived'); }
-      else if (act === 'edit') { projView = id; projEdit = true; }
-      else if (act === 'delete') { if (!confirm(`Delete the project "${p.name}"? Its chats stay in your chat list.`)) return render(); await removeDoc('projects', id); if (projView === id) projView = 'list'; toast('Project deleted'); }
+      const [act, id] = [pd.dataset.projDo.split(':')[0], pd.dataset.projDo.slice(pd.dataset.projDo.indexOf(':') + 1)]; const f = folder(id); projMenu = null; if (!f) return;
+      if (act === 'pin') await saveFolder(id, { pinned: !f.pinned });
       render(); return;
     }
-    const px = e.target.closest('[data-pfile-x]'); if (px) { const p = data.projects[projView]; if (!p) return; const files = [...(p.files || [])]; const [gone] = files.splice(Number(px.dataset.pfileX), 1); if (gone && confirm(`Remove ${gone.name} from this project?`)) await saveDoc('projects', projView, { ...p, files }); render(); return; }
+    const px = e.target.closest('[data-pfile-x]'); if (px) { const f = folder(projView); if (!f) return; const files = [...f.files]; const [gone] = files.splice(Number(px.dataset.pfileX), 1); if (gone && confirm(`Remove ${gone.name} from this bid folder?`)) await saveFolder(projView, { files }); render(); return; }
     const mv = e.target.closest('[data-chat-move]'); if (mv) {
-      const id = mv.dataset.chatMove, c = data.chats[id]; const ps = projList().filter((p) => !p.archived);
-      if (!ps.length) { toast('Make a project first (📁 Projects).'); return; }
-      const ans = prompt(`Move this chat to which project? Type the number.\n${ps.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}\n0. No project`);
+      const id = mv.dataset.chatMove, c = data.chats[id]; const ps = folderList().filter((f) => !f.closed).sort((a, b) => String(a.bid.due || '9').localeCompare(String(b.bid.due || '9')));
+      if (!ps.length) { toast('No open bids to move it to. Set the bid to Reviewing, Bid or Submitted first.'); return; }
+      const ans = prompt(`Move this chat to which bid folder? Type the number.\n${ps.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}\n0. Just a chat (no folder)`);
       if (ans === null) return; const k = Number(ans);
       if (k === 0) { const { projectId, ...rest } = c; await saveDoc('chats', id, rest); }
       else if (ps[k - 1]) await saveDoc('chats', id, { ...c, projectId: ps[k - 1].id });
@@ -1192,20 +1187,12 @@
     else if (a === 'proj-open-list') { projView = 'list'; go('ask'); }
     else if (a === 'proj-list') { projView = 'list'; projMenu = null; render(); window.scrollTo({ top: 0 }); }
     else if (a === 'proj-back') { projView = null; render(); }
-    else if (a === 'proj-new') { const n = prompt('Name this project (for example the solicitation number and title)'); if (n && n.trim()) { const id = await createProject({ name: n.trim().slice(0, 120) }); if (id) openProject(id); } }
-    else if (a === 'proj-addbids') {
-      const miss = liveOpps().filter((o) => ['reviewing', 'bid', 'submitted'].includes(o.status) && !isPastOpp(o) && !projectForBid(o.id));
-      t.disabled = true; let n = 0; for (const o of miss) if (await createProject(bidProjectBody(o, o.id))) n++;
-      toast(`Made ${n} project${n === 1 ? '' : 's'}`); render();
-    }
     else if (a === 'proj-chat') { chatId = null; chatProject = projView; askFocus = null; chatFiles = []; projView = null; render(); const i = $('#ask-in'); if (i) i.focus(); }
-    else if (a === 'proj-cancel') { projEdit = false; render(); }
-    else if (a === 'proj-save') { const p = data.projects[projView]; const n = $('#pe-name').value.trim(); if (!p || !n) return; if (await saveDoc('projects', projView, { ...p, name: n.slice(0, 120), description: $('#pe-desc').value.trim().slice(0, 300), bidId: $('#pe-bid').value })) { projEdit = false; toast('Saved'); render(); } }
-    else if (a === 'proj-instr-save') { const p = data.projects[projView]; if (p && await saveDoc('projects', projView, { ...p, instructions: $('#proj-instr').value.trim().slice(0, 8000) })) toast('Instructions saved'); }
+    else if (a === 'proj-instr-save') { if (folder(projView) && await saveFolder(projView, { instructions: $('#proj-instr').value.trim().slice(0, 8000) })) toast('Instructions saved'); }
     else if (a === 'proj-attach') { const f = $('#proj-file'); if (f) f.click(); }
     else if (a === 'bid-project') {
       const id = editing.id, o = data.opportunities[id]; if (!o) return; modal.close();
-      openProject(projectForBid(id) || await createProject(bidProjectBody(o, id)));
+      openProject(folderId(id));
     }
     else if (a === 'chat-list') { showChats = !showChats; render(); }
     else if (a === 'chat-stop') { if (chatBusy) chatBusy.abort(); }
@@ -1214,7 +1201,7 @@
     else if (a === 'chat-attach') { const f = $('#chat-file'); if (f) f.click(); }
     else if (a === 'ask-bid') {
       const o = data.opportunities[editing.id]; if (!o) return; modal.close();
-      const { notes, ...rest } = o; chatId = null; projView = null; chatProject = projectForBid(editing.id) || null; askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
+      const { notes, ...rest } = o; chatId = null; projView = null; chatProject = folderId(editing.id); askFocus = { id: editing.id, ...rest, recentNotes: (Array.isArray(notes) ? notes : []).slice(-8) };
       askClaude(`Tell me about bid ${o.sol || ''} ${o.title || ''}: where it stands, what it still needs before it goes in, the risks, and the next step.`);
     }
     else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); } catch (_) { /* ignore */ } location.reload(); }

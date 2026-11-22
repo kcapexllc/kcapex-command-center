@@ -22,3 +22,9 @@ python3 -m http.server 8000
 1. Deploy the folder to any static host. Netlify works with the included `netlify.toml` (publish directory `.`).
 2. **iPhone:** open the URL in Safari → Share → **Add to Home Screen**.
 3. **Android:** open the URL in Chrome → ⋮ → **Install app**.
+
+## Password gate (Netlify)
+`netlify/edge-functions/auth.ts` puts a sign-in page in front of the whole site. The password is read from the
+Netlify environment variable **`APP_PASSWORD`**, so it never lives in the repo. To change it:
+Netlify → project → Site configuration → Environment variables → edit `APP_PASSWORD` → redeploy.
+Changing it signs out every device. Settings → **Sign out** clears the gate on one device.

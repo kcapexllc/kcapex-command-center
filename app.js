@@ -403,6 +403,11 @@
         </div>
         <input type="file" id="import-file" accept="application/json,.json" hidden />
       </div>
+      ${location.hostname.endsWith('localhost') || location.protocol === 'file:' ? '' : `<div class="panel">
+        <h2>Account</h2>
+        <p>Sign out of the password gate on this device. Your data stays on the device.</p>
+        <a class="btn" href="/__logout" style="display:inline-block;text-decoration:none">Sign out</a>
+      </div>`}
     </div>`;
   }
 

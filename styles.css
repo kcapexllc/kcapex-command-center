@@ -427,3 +427,9 @@ body.kc-typing .tabbar { display: none; }
 .proj-chip { display: block; width: 100%; text-align: left; background: color-mix(in srgb, var(--blue) 10%, transparent); border: 0; border-radius: 10px; padding: 7px 12px; margin: -2px 0 8px; font: inherit; font-size: 13px; font-weight: 600; color: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj-chip span { font-weight: 400; color: var(--muted); }
 .chat-head { gap: 6px; } .chat-head .btn { white-space: nowrap; }
+/* Tab swipe animation */
+@keyframes kcSlideL { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes kcSlideR { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
+.view.slide-l { animation: kcSlideL .22s ease-out; }
+.view.slide-r { animation: kcSlideR .22s ease-out; }
+@media (prefers-reduced-motion: reduce) { .view.slide-l, .view.slide-r { animation: none; } }

@@ -39,7 +39,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-4';
+  const APP_VERSION = '2026.11.23-5';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1263,6 +1263,34 @@
   }
   let toastTimer;
   function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200); }
+
+  // ---------- Swipe between tabs (phones) ----------
+  // Swipe left for the next tab, right for the previous one, in the order of the bottom bar.
+  const SWIPE_ORDER = ['dashboard', 'more', 'leads', 'bids', 'jobs', 'contracts', 'messages'];
+  const tabIndex = (v) => { const i = SWIPE_ORDER.indexOf(v); return i >= 0 ? i : EXTRA.some((x) => x.id === v) && v !== 'ask' ? 1 : -1; };
+  let sw = null;
+  function scrollsSideways(el) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 4) { const ox = getComputedStyle(n).overflowX; if (ox === 'auto' || ox === 'scroll') return true; }
+    }
+    return false;
+  }
+  document.addEventListener('touchstart', (e) => {
+    sw = null;
+    if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
+    const t = e.target; if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .chatwrap, .projwrap') || scrollsSideways(t)) return;
+    if (tabIndex(ui.view) < 0) return;
+    const p = e.touches[0]; if (p.clientX < 16 || p.clientX > innerWidth - 16) return; // leave the screen edges to iPhone
+    sw = { x: p.clientX, y: p.clientY, t: Date.now() };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!sw) return; const p = e.changedTouches[0], dx = p.clientX - sw.x, dy = p.clientY - sw.y, dt = Date.now() - sw.t; sw = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.8 || dt > 700) return;
+    const i = tabIndex(ui.view), j = i + (dx < 0 ? 1 : -1);
+    if (j < 0 || j >= SWIPE_ORDER.length) return;
+    go(SWIPE_ORDER[j]);
+    const v = $('#view'); v.classList.remove('slide-l', 'slide-r'); void v.offsetWidth; v.classList.add(dx < 0 ? 'slide-l' : 'slide-r');
+  }, { passive: true });
 
   // ---------- Boot ----------
   $('#today').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });

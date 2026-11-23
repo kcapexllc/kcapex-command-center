@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-28';
+  const APP_VERSION = '2026.11.23-29';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -786,19 +786,41 @@
       <div class="ms-h">Thinking effort</div><div class="ms-eff">${EFFORTS.map(([k, l]) => `<button type="button" class="${k === chatEffort ? 'on' : ''}" data-effort="${k}">${l}</button>`).join('')}</div>
       <p class="ms-note">More effort means deeper thinking, slower answers and higher cost. Your choice is remembered.</p></div>`;
   }
-  // Claude's thinking, shown live while it thinks and folded into "Thought for 6s" afterwards (tap to read it).
-  function thinkHtml(m, streaming) {
-    if (!m.think) return streaming && !m.text ? '' : '';
-    const live = streaming && !m.text, secs = Math.max(1, Math.round((m.thinkMs || 0) / 1000));
-    return `<details class="think" ${live || m.thinkOpen ? 'open' : ''}><summary>${live ? '<span class="tdot"></span> Thinking…' : `Thought for ${secs}s`}</summary><div class="think-body">${md(m.think)}</div></details>`;
+  // Claude's thinking and progress updates, like the Claude app: while it works, the header shows its latest thought
+  // in a few words ("Checking wage rates…") and each step it takes (searching, reading files, looking up records)
+  // appears as a line. Afterwards it folds to "Thought for 8s · 3 steps"; tap to read it all.
+  function headline(think) {
+    const t = String(think || ''), bold = [...t.matchAll(/\*\*([^*\n]{3,80})\*\*/g)].pop();
+    let h = bold ? bold[1] : (t.trim().split(/\n+/).pop() || '').split(/(?<=[.!?])\s/).pop();
+    h = h.replace(/[*#_`>]/g, '').trim(); if (h.length > 64) h = h.slice(0, 62).replace(/\s+\S*$/, '') + '…';
+    return h;
   }
+  const STEP_ICON = { search: '🔍', read: '📄', look: '🗂', write: '✓', think: '•' };
+  function thinkHtml(m, streaming) {
+    const steps = m.steps || [];
+    if (!m.think && !steps.length) return '';
+    const live = streaming && !m.text, secs = Math.max(1, Math.round((m.thinkMs || 0) / 1000));
+    const head = live ? `<span class="tdot"></span> ${esc(headline(m.think) || (steps.length ? steps[steps.length - 1].d : 'Thinking') )}${headline(m.think) ? '…' : ''}`
+      : `${m.think ? `Thought for ${secs}s` : 'Worked through it'}${steps.length ? ` · ${steps.length} step${steps.length === 1 ? '' : 's'}` : ''}`;
+    const tl = steps.length ? `<ol class="steps">${steps.map((x, i) => `<li class="${live && i === steps.length - 1 ? 'now' : ''}"><span>${STEP_ICON[x.k] || '•'}</span>${esc(x.d)}</li>`).join('')}</ol>` : '';
+    return `<details class="think" ${live || m.thinkOpen ? 'open' : ''}><summary>${head}</summary>${tl}${m.think ? `<div class="think-body">${md(m.think)}</div>` : ''}</details>`;
+  }
+  // A finished step replaces the "in progress" line for the same kind ("Searching the web" → "Searched the web for …").
+  function addStep(reply, d, k, inProgress) {
+    if (!d) return; reply.steps = reply.steps || [];
+    const last = reply.steps[reply.steps.length - 1]; if (last && last.d === d) return;
+    if (last && last.p && !inProgress && last.k === (k || 'think')) { reply.steps[reply.steps.length - 1] = { d, k: k || 'think' }; return; }
+    reply.steps.push({ d, k: k || 'think', ...(inProgress ? { p: 1 } : {}) });
+  }
+  const stepKind = (d) => (/search/i.test(d) ? 'search' : /file|read/i.test(d) ? 'read' : /record|look/i.test(d) ? 'look' : 'think');
+
   function msgHtml(m, idx, last) {
     if (m.role === 'user' && editIdx === idx) return `<div class="msg user editing"><textarea id="edit-in" rows="3">${esc(m.text)}</textarea><div class="edit-row"><button type="button" class="btn" data-action="edit-cancel">Cancel</button><button type="button" class="btn primary" data-action="edit-send">Send</button></div></div>`;
     if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>${chatBusy ? '' : `<div class="uacts"><button type="button" data-copy="${idx}" aria-label="Copy">⧉ Copy</button><button type="button" data-edit="${idx}" aria-label="Edit">✎ Edit</button></div>`}`;
 
     if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>`;
     const streaming = last && chatBusy;
-    const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
+    const acts = (m.tools || []).filter((t) => t.write || !(m.steps && m.steps.length)).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     const body = m.text ? md(m.text) : (streaming ? '' : '<p>(no answer)</p>');
     return `<div class="msg assistant" ${streaming ? 'id="live-msg"' : ''}><div class="thinkwrap">${thinkHtml(m, streaming)}</div>${acts ? `<div class="acts">${acts}</div>` : ''}<div class="mbody">${body}</div>
       ${streaming ? `<div class="typing"><span></span><span></span><span></span> <em id="live-status">${esc(chatStatus || 'Thinking…')}</em></div>` : ''}
@@ -974,9 +996,9 @@
     revealFrame = (revealFrame + 1) % 2;
     if (target.length < 4000 || revealFrame === 0 || shownLen >= target.length) el.querySelector('.mbody').innerHTML = md(target.slice(0, shownLen));
     // Thinking panel: open and growing while Claude thinks, folds to "Thought for Ns" once the answer starts.
-    const tw = el.querySelector('.thinkwrap'), tkey = (m.think || '').length + '|' + (m.text ? 1 : 0);
-    if (tw && m.think && tw._k !== tkey) { const d = tw.querySelector('details'), keepOpen = d && tw._k && tw._k.endsWith('|1') ? d.open : false; tw.innerHTML = thinkHtml(m, true); const nd = tw.querySelector('details'); if (nd && m.text) nd.open = keepOpen; tw._k = tkey; const tb = tw.querySelector('.think-body'); if (tb) tb.scrollTop = tb.scrollHeight; }
-    const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
+    const tw = el.querySelector('.thinkwrap'), tkey = (m.think || '').length + '|' + (m.steps || []).length + '|' + (m.text ? 1 : 0);
+    if (tw && (m.think || (m.steps || []).length) && tw._k !== tkey) { const d = tw.querySelector('details'), keepOpen = d && tw._k && tw._k.endsWith('|1') ? d.open : false; tw.innerHTML = thinkHtml(m, true); const nd = tw.querySelector('details'); if (nd && m.text) nd.open = keepOpen; tw._k = tkey; const tb = tw.querySelector('.think-body'); if (tb) tb.scrollTop = tb.scrollHeight; }
+    const acts = (m.tools || []).filter((t) => t.write || !(m.steps && m.steps.length)).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
     const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
     if (atBottom) scrollChat(); else updateJump();
@@ -988,7 +1010,7 @@
     if (!chatId) return;
     const prev = (data.chats || {})[chatId] || {};
     const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
-    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}), ...(m.think ? { think: m.think.slice(0, 20000), thinkMs: m.thinkMs || 0 } : {}), ...(m.model ? { model: m.model, effort: m.effort } : {}) })).slice(-60);
+    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}), ...(m.think ? { think: m.think.slice(0, 20000), thinkMs: m.thinkMs || 0 } : {}), ...(m.steps && m.steps.length ? { steps: m.steps.slice(0, 40) } : {}), ...(m.model ? { model: m.model, effort: m.effort } : {}) })).slice(-60);
     const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean, ...(prev.projectId || chatProject ? { projectId: prev.projectId || chatProject } : {}) };
 
     data.chats = { ...(data.chats || {}), [chatId]: body };
@@ -1198,8 +1220,8 @@
       const apply = (ev, cont) => {
         if (ev.t === 'text') { if (reply.thinkAt && !reply.thinkMs) reply.thinkMs = Date.now() - reply.thinkAt; reply.text += ev.d; chatStatus = 'Writing…'; }
         else if (ev.t === 'think') { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = (reply.think || '') + ev.d; chatStatus = 'Thinking…'; }
-        else if (ev.t === 'status') { if (!reply.text) chatStatus = ev.d; }
-        else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; }
+        else if (ev.t === 'status') { if (!reply.text) chatStatus = ev.d; if (!/^(Thinking|Writing)/.test(ev.d)) addStep(reply, ev.d.replace(/…$/, ''), stepKind(ev.d), true); }
+        else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; addStep(reply, ev.d, ev.write ? 'write' : stepKind(ev.d)); }
         else if (ev.t === 'error') reply.error = ev.d;
         paintLive();
       };
@@ -1240,6 +1262,8 @@
           if (j.think) { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = (keepText ? reply.think || '' : '') + j.think; }
           if (j.text && reply.thinkAt && !reply.thinkMs) reply.thinkMs = Date.now() - reply.thinkAt;
           reply.text = base + (j.text || ''); reply.tools = [...baseTools, ...(j.tools || [])];
+          if (j.status && !/^(Thinking|Writing)/.test(j.status)) addStep(reply, j.status.replace(/…$/, ''), stepKind(j.status), true);
+          (j.tools || []).forEach((t) => { if (!(reply.steps || []).some((x) => x.d === t.d)) addStep(reply, t.d, t.write ? 'write' : stepKind(t.d)); });
           if (reply.tools.some((t) => t.write)) wrote = true;
           chatStatus = j.text ? 'Writing…' : (j.status || 'Thinking…');
           if (j.error) reply.error = j.error;

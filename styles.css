@@ -591,3 +591,10 @@ body.kc-listening .composer { border-color: rgba(220, 38, 38, .5); }
 .msg.user.editing { width: 100%; max-width: 100%; background: var(--panel); border: 1px solid var(--blue); color: var(--text); }
 .msg.user.editing textarea { width: 100%; border: 0; background: transparent; font: inherit; font-size: 16px; color: inherit; resize: vertical; outline: none; }
 .edit-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+/* Progress steps inside the thinking panel */
+.steps { list-style: none; margin: 8px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.steps li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: var(--muted); }
+.steps li span { width: 16px; flex: none; text-align: center; font-size: 12px; }
+.steps li.now { color: var(--text); font-weight: 600; }
+.steps li.now span { animation: kcdot 1.2s infinite ease-in-out; }
+.think summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

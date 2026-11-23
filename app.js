@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-19';
+  const APP_VERSION = '2026.11.23-20';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1377,6 +1377,16 @@
   document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('kc-typing'); }, 350); });
   document.addEventListener('change', (e) => { if (e.target.id === 'proj-file' && e.target.files.length) { addProjectFiles(projView, [...e.target.files]); e.target.value = ''; return; } if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
   document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
+  // Bottom tabs switch the moment your finger touches them, like iPhone's own tab bars, instead of waiting for you
+  // to lift it. The click that follows is ignored so the tab isn't switched twice.
+  let tabDownAt = 0;
+  $('#tabbar').addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('[data-go]'); if (!b || e.button > 0) return;
+    tabDownAt = Date.now();
+    if (b.dataset.go === ui.view) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; } // tap the tab you're on: back to the top
+    go(b.dataset.go);
+  });
+  $('#tabbar').addEventListener('click', (e) => { if (Date.now() - tabDownAt < 1000) { e.stopPropagation(); e.preventDefault(); } }, true);
   $('#fab').addEventListener('click', () => openForm(ui.view === 'dashboard' ? 'bids' : ui.view));
   $('#title-btn').addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
   $('#more-btn').addEventListener('click', () => (topMenu.hidden ? openTopMenu() : closeTopMenu()));

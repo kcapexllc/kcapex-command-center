@@ -500,3 +500,10 @@ body.dr-open .drawer-back { opacity: 1; }
 .drawer > * { flex-shrink: 0; }
 .dr-chat { line-height: 1.35; padding: 9px 10px; }
 .dr-foot .dr-item span { color: var(--text); font-size: 15px; }
+
+/* Speed check (Settings) */
+.speed-t { width: 100%; border-collapse: collapse; font-size: 13.5px; margin: 6px 0 10px; }
+.speed-t td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.speed-t td:first-child { color: var(--muted); width: 42%; padding-right: 10px; }
+.speed-t td:last-child { font-weight: 600; }
+.toast { width: max-content; max-width: calc(100vw - 32px); text-align: center; }

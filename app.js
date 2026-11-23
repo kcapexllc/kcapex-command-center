@@ -29,17 +29,29 @@
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  const isoDay = (d = new Date()) => { const x = new Date(d); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+  // Speed: working out today's date and wording a date ("Nov 22") are among the slowest things a phone does per card,
+  // and a screen asks for them hundreds of times. Today is worked out once every 15 seconds; each date is worded once.
+  const ymd = (x) => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+  let todayM = { t: 0 };
+  const today = () => { const n = Date.now(); if (n - todayM.t > 15000 || n < todayM.t) { const x = new Date(n), s = ymd(x); todayM = { t: n, s, d: new Date(s + 'T00:00:00'), y: x.getFullYear() }; } return todayM; };
+  const isoDay = (d) => (d === undefined ? today().s : ymd(new Date(d)));
   const dayOf = (s) => { if (!s) return ''; s = String(s); if (s.length <= 10) return s; const d = new Date(s); return isNaN(d) ? s.slice(0, 10) : isoDay(d); };
   const parseDate = (s) => (s ? new Date(dayOf(s) + 'T00:00:00') : null);
-  const daysUntil = (s) => { const d = parseDate(s); if (!d || isNaN(d)) return null; return Math.round((d - parseDate(isoDay())) / 86400000); };
-  const fmtDate = (s) => { const d = parseDate(s); return d && !isNaN(d) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined }) : ''; };
+  const daysUntil = (s) => { const d = parseDate(s); if (!d || isNaN(d)) return null; return Math.round((d - today().d) / 86400000); };
+  const DATE_FMT = (() => { try { return [new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }), new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })]; } catch (_) { return null; } })();
+  const fmtMemo = new Map();
+  const fmtDate = (s) => {
+    if (!s) return ''; const y = today().y, k = y + '|' + s; let v = fmtMemo.get(k); if (v !== undefined) return v;
+    const d = parseDate(s), other = d && d.getFullYear() !== y;
+    v = d && !isNaN(d) ? (DATE_FMT ? DATE_FMT[other ? 1 : 0].format(d) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: other ? 'numeric' : undefined })) : '';
+    if (fmtMemo.size > 4000) fmtMemo.clear(); fmtMemo.set(k, v); return v;
+  };
   const money = (n) => { n = Number(n) || 0; if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(n >= 1e7 ? 1 : 2).replace(/\.0+$/, '') + 'M'; if (Math.abs(n) >= 1e4) return '$' + Math.round(n / 1e3) + 'K'; return '$' + n.toLocaleString(); };
   const safeUrl = (u) => (/^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '');
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-17';
+  const APP_VERSION = '2026.11.23-18';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -343,7 +355,9 @@
     const same = view === ui.view; ui.view = view; try { closeTopMenu(); } catch (_) { /* menu not ready yet */ }
     try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
     if (drawn) { renderChrome(); if (window.kcWarm) window.kcWarm(); return; }
+    const t0 = performance.now();
     render(); window.scrollTo({ top: same || view === 'ask' ? 0 : scrollMem[view] || 0 });
+    if (!same && window.kcPerf) window.kcPerf.nav(view, t0);
   }
 
   // ---------- Rendering ----------
@@ -1148,8 +1162,8 @@
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Sync</h2><p>Bids, New, Quick-turn, People, Subs and Library sync with your KCAPEX Pipeline in Claude on a schedule. Leads, Jobs, Contracts, Invoices and Inbox live in this app and are shared across your devices.</p>
         <p>${syncLine(true)}</p>
-        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><button class="btn" data-action="reload">Get the latest version</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div>
-        <p style="color:var(--muted);font-size:12px;margin-top:10px">App version ${APP_VERSION}</p></div>`;
+        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><button class="btn" data-action="reload">Get the latest version</button><button class="btn" data-action="speed">Speed check</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div>
+        <p style="color:var(--muted);font-size:12px;margin-top:10px">App version ${APP_VERSION}</p></div>${window.kcPerf ? window.kcPerf.panel() : ''}`;
   }
 
   // ---------- Modal / CRUD ----------
@@ -1182,7 +1196,7 @@
         ${(Array.isArray(rec.notes) ? rec.notes : []).slice(-6).reverse().map((nt) => `<div class="note"><small>${esc(nt && nt.t)}</small>${esc(nt && nt.text)}</div>`).join('')}</div>` : ''}
       <div class="modal-actions">${rec ? '<button type="button" class="btn danger" data-action="delete">Delete</button>' : '<span></span>'}
         <div class="btn-row"><button type="button" class="btn" data-action="close">Cancel</button><button type="submit" class="btn primary">Save</button></div></div>`;
-    modal.showModal();
+    const tOpen = performance.now(); modal.showModal(); if (window.kcPerf) window.kcPerf.open(key, tOpen);
     if (!rec) setTimeout(() => form.querySelector('input,select,textarea')?.focus(), 50);
   }
 
@@ -1332,6 +1346,8 @@
     else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
     else if (a === 'dismiss') { const x = data.inbox[t.dataset.id]; if (x && await saveDoc('inbox', t.dataset.id, { ...x, state: 'dismissed' })) toast('Dismissed'); }
     else if (a === 'export') exportData();
+    else if (a === 'speed') window.kcPerf.run();
+    else if (a === 'speed-copy') window.kcPerf.copy();
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.card[data-open]')) e.target.click(); });
   // Paste a screenshot, photo or PDF straight into the message box (or drop files on the chat on a computer).
@@ -1373,7 +1389,7 @@
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   let toastTimer;
-  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200); }
+  function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2200); }
 
   // ---------- Side menu (like the Claude app) ----------
   // ☰ or a swipe in from the left edge opens it: new chat, bid folders, recent chats and every screen.
@@ -1477,19 +1493,24 @@
   const warmCache = {};
   const warmKey = () => dataRev + '|' + isoDay() + '|' + JSON.stringify([ui.filter, ui.query, ui.level, ui.elig]);
   function htmlForWarm(v) { const k = warmKey(), c = warmCache[v]; if (c && c.k === k) return c.html; const html = htmlFor(v); warmCache[v] = { k, html }; return html; }
-  let warmTimer = 0;
+  // One screen per pause, and only once the screen has been still for half a second: iPhones have no "idle" signal,
+  // so preparing all the neighbours in one go used to land right as you started to scroll the new screen.
+  let warmTimer = 0, lastTouch = 0;
+  ['touchstart', 'touchmove', 'touchend', 'scroll'].forEach((ev) => window.addEventListener(ev, () => { lastTouch = Date.now(); }, { passive: true, capture: true }));
   function warmNeighbors() {
     clearTimeout(warmTimer);
-    warmTimer = setTimeout(() => {
-      const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1));
-      idle(() => {
-        if (!matchMedia('(max-width: 899px)').matches || ui.view === 'ask') return;
-        const i = SWIPE_ORDER.indexOf(ui.view), next = [];
-        if (i >= 0) { if (i > 0) next.push(SWIPE_ORDER[i - 1]); if (i < SWIPE_ORDER.length - 1) next.push(SWIPE_ORDER[i + 1]); }
-        const back = navStack[navStack.length - 1]; if (back && back !== 'ask') next.push(back);
-        next.forEach((v) => { try { htmlForWarm(v); } catch (_) { /* drawn fresh at swipe time instead */ } });
-      }, { timeout: 1500 });
-    }, 250);
+    if (!matchMedia('(max-width: 899px)').matches || ui.view === 'ask') return;
+    const i = SWIPE_ORDER.indexOf(ui.view), queue = [];
+    if (i >= 0) { if (i < SWIPE_ORDER.length - 1) queue.push(SWIPE_ORDER[i + 1]); if (i > 0) queue.push(SWIPE_ORDER[i - 1]); }
+    const back = navStack[navStack.length - 1]; if (back && back !== 'ask' && !queue.includes(back)) queue.push(back);
+    const step = () => {
+      if (!queue.length) return;
+      const quiet = Date.now() - lastTouch;
+      if (quiet < 500 || pagerFinish) { warmTimer = setTimeout(step, 520 - Math.min(500, quiet)); return; }
+      const v = queue.shift(); try { htmlForWarm(v); } catch (_) { /* drawn fresh at swipe time instead */ }
+      warmTimer = setTimeout(step, 120);
+    };
+    warmTimer = setTimeout(step, 600);
   }
   window.kcWarm = warmNeighbors;
   const view = $('#view'); let g = null;
@@ -1498,13 +1519,14 @@
   const viewTop = () => view.getBoundingClientRect().top + window.scrollY;
   // Draws `target` in a layer over the page, parked one screen-width to the side, at the spot it was last scrolled to.
   function buildPeek(target, dir) {
+    const tBuild = performance.now();
     const layer = document.createElement('div'); layer.className = 'peek';
     const inner = document.createElement('section'); inner.className = 'view';
     inner.innerHTML = htmlForWarm(target.view); layer.appendChild(inner); view.parentNode.appendChild(layer);
     const top = viewTop(), maxScroll = Math.max(0, top + inner.offsetHeight - innerHeight);
     const scroll = Math.min(scrollMem[target.view] || 0, maxScroll);
     const pk = { layer, inner, target, dir, rev: dataRev, scroll, y: top - scroll };
-    placePeek(pk, dir * innerWidth); return pk;
+    placePeek(pk, dir * innerWidth); if (window.kcPerf) window.kcPerf.swipeBuilt(target.view, tBuild); return pk;
   }
   const placePeek = (pk, x) => { pk.inner.style.transform = `translate3d(${x}px,${pk.y}px,0)`; };
   const dropPeeks = (was) => { ['back', 'fwd'].forEach((k) => { if (was[k + 'Peek']) { was[k + 'Peek'].layer.remove(); was[k + 'Peek'] = null; } }); };
@@ -1523,7 +1545,7 @@
     if (g.lock === null) {
       if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
       g.lock = Math.abs(dx) > Math.abs(dy) * 1.1 ? 'h' : 'v';
-      if (g.lock === 'h') { g.back = swipeTarget(-1); g.fwd = swipeTarget(1); view.style.transition = 'none'; view.style.willChange = 'transform'; }
+      if (g.lock === 'h') { g.back = swipeTarget(-1); g.fwd = swipeTarget(1); view.style.transition = 'none'; view.style.willChange = 'transform'; if (window.kcPerf) g.meter = window.kcPerf.meter(); }
     }
     if (g.lock !== 'h') return;
     e.preventDefault();
@@ -1537,6 +1559,7 @@
   document.addEventListener('touchend', (e) => {
     if (!g) return; const was = g; g = null;
     if (was.lock !== 'h') return;
+    if (was.meter) window.kcPerf.swipeDone(was.meter.stop());
     const W = innerWidth, p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), sign = dx > 0 ? 1 : -1;
     const side = dx > 0 ? 'back' : 'fwd', tgt = was[side], pk = was[side + 'Peek'];
     const v = Date.now() - was.lt > 90 ? 0 : was.v; // a finger that stopped before lifting is not a flick
@@ -1588,7 +1611,7 @@
     else if (ui.view === 'ask' && cur && !projView) out.push(it('chat-rename', '✎ Rename chat'), it('chat-move', '📁 Move to a bid folder'), it('chat-copy', '⧉ Copy whole chat'), it('chat-del', '🗑 Delete chat', true));
     else if (COLLECTIONS[ui.view]) out.push(it('add', `＋ Add ${COLLECTIONS[ui.view].label.replace(/s$/, '').toLowerCase()}`));
     if (out.length) out.push('<hr>');
-    out.push(it('new-chat', '✦ New chat'), it('folders', '📁 Bid folders'), it('opps', '☷ Opportunities and more'), it('latest', '↻ Get the latest version'), it('export', '⤓ Export backup'), it('signout', 'Sign out'));
+    out.push(it('new-chat', '✦ New chat'), it('folders', '📁 Bid folders'), it('opps', '☷ Opportunities and more'), it('latest', '↻ Get the latest version'), it('speed', '⚡ Speed check'), it('export', '⤓ Export backup'), it('signout', 'Sign out'));
     return out.join('');
   }
   function openTopMenu() { topMenu.innerHTML = topMenuItems(); topMenu.hidden = false; topBack.hidden = false; requestAnimationFrame(() => topMenu.classList.add('show')); }
@@ -1611,8 +1634,99 @@
     else if (a === 'opps') go('more');
     else if (a === 'latest') { const r = document.createElement('button'); r.dataset.action = 'reload'; r.hidden = true; document.body.appendChild(r); r.click(); r.remove(); }
     else if (a === 'export') exportData();
+    else if (a === 'speed') window.kcPerf.run();
     else if (a === 'signout') location.href = '/__logout';
   });
+
+  // ---------- Speed check ----------
+  // The app times itself on the phone it is running on: how fast the phone draws frames, how long each screen takes
+  // to build, and how your last real taps, swipes, scrolls and record opens went. Settings → Speed check shows it.
+  (() => {
+    const log = { nav: [], swipe: [], drag: [], scroll: [], open: [] };
+    const keep = (a, x, n = 15) => { a.push(x); if (a.length > n) a.shift(); };
+    const med = (a) => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+    const r1 = (n) => (n == null ? '–' : String(Math.round(n)));
+    let tapAt = 0; document.addEventListener('click', (e) => { tapAt = e.timeStamp; }, true);
+    // Calls back after the next frame is on screen.
+    const afterPaint = (f) => requestAnimationFrame(() => setTimeout(f, 0));
+    // Counts frames until stopped: frames a second, and the longest gap between two frames.
+    function meter() {
+      let n = 0, worst = 0, on = true, last = 0; const t0 = performance.now();
+      requestAnimationFrame(function tick(t) { if (!on) return; if (last) { n++; worst = Math.max(worst, t - last); } last = t; requestAnimationFrame(tick); });
+      return { stop() { on = false; const ms = performance.now() - t0; return { ms, fps: n > 1 ? n / (ms / 1000) : 0, worst, frames: n }; } };
+    }
+    // Scrolling: measured while the page moves, saved when it stops.
+    let sc = null, scTimer = 0;
+    window.addEventListener('scroll', () => {
+      if (!sc) sc = { m: meter(), v: ui.view };
+      clearTimeout(scTimer); scTimer = setTimeout(() => { const r = sc.m.stop(), v = sc.v; sc = null; if (r.ms > 450 && r.frames > 5) keep(log.scroll, { v, fps: r.fps, worst: r.worst }); }, 140);
+    }, { passive: true });
+    window.kcPerf = {
+      meter,
+      nav(v, t0) { const wait = tapAt && t0 - tapAt < 400 && t0 >= tapAt ? t0 - tapAt : 0, draw = performance.now() - t0; afterPaint(() => keep(log.nav, { v, wait, draw, shown: performance.now() - t0 + wait })); },
+      open(k, t0) { const build = performance.now() - t0; afterPaint(() => keep(log.open, { k, build, shown: performance.now() - t0 })); },
+      swipeBuilt(v, t0) { keep(log.swipe, { v, build: performance.now() - t0 }); },
+      swipeDone(r) { if (r.frames > 3) keep(log.drag, { fps: r.fps, worst: r.worst }); },
+      report: null,
+      panel() { return this.report ? `<div class="panel settings speed" id="speed-out"><h2>Speed check</h2>${this.report.html}<div class="btn-row"><button class="btn" data-action="speed">Run again</button><button class="btn" data-action="speed-copy">Copy results</button></div></div>` : ''; },
+      copy() { const t = this.report ? this.report.text : ''; (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Results copied'), () => toast('Take a screenshot instead')); },
+      // Steady frame rate over about a second, from the usual gap between frames (so one hiccup doesn't skew it).
+      frameRate(ms = 1000) { return new Promise((res) => { const gaps = []; let last = 0; const t0 = performance.now(); requestAnimationFrame(function tick(t) { if (last) gaps.push(t - last); last = t; if (performance.now() - t0 < ms) requestAnimationFrame(tick); else res(gaps.length > 5 ? 1000 / med(gaps) : 0); }); setTimeout(() => res(0), ms + 1500); }); },
+      async run() {
+        if (ui.view !== 'more') go('more');
+        toast('Checking speed… about 3 seconds', 3500);
+        await new Promise((r) => setTimeout(r, 350));
+        const fps = await this.frameRate(1000);
+        // Build every main screen off to the side, twice, and keep the faster run.
+        const draws = [];
+        for (const v of SWIPE_ORDER) {
+          let best = null;
+          for (let i = 0; i < 2; i++) {
+            const t0 = performance.now(), html = htmlFor(v), t1 = performance.now();
+            const box = document.createElement('div'); box.style.cssText = 'position:fixed;left:-200vw;top:0;width:100vw;visibility:hidden;pointer-events:none';
+            const sec = document.createElement('section'); sec.className = 'view'; sec.innerHTML = html; box.appendChild(sec); document.body.appendChild(box);
+            void sec.offsetHeight; const t2 = performance.now(); const nodes = sec.getElementsByTagName('*').length; box.remove();
+            const r = { v, build: t1 - t0, place: t2 - t1, total: t2 - t0, nodes }; if (!best || r.total < best.total) best = r;
+            await new Promise((r2) => setTimeout(r2, 0));
+          }
+          draws.push(best);
+        }
+        const label = (v) => ({ dashboard: 'Home', more: 'Opps', messages: 'Inbox' }[v] || (COLLECTIONS[v] ? COLLECTIONS[v].label : v));
+        const records = DBC.reduce((a, c) => a + Object.keys(data[c]).length, 0);
+        let copyKB = 0; try { copyKB = Math.round((localStorage.getItem('kc.pipeline.cache.v1') || '').length / 1024); } catch (_) { /* blocked */ }
+        const ua = navigator.userAgent, ios = ua.match(/OS (\d+(?:_\d+)*) like Mac/), os = ios ? 'iOS ' + ios[1].replace(/_/g, '.') : (ua.match(/Android [\d.]+/) || ['computer'])[0];
+        const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+        const slowest = draws.reduce((a, b) => (b.total > a.total ? b : a));
+        const nav = log.nav, drag = log.drag, scr = log.scroll, opn = log.open, sw = log.swipe;
+        const half = fps > 0 && fps < 45;
+        const lines = [], pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+        lines.push(['Frames a second', `${r1(fps)}${half ? ' — HALF SPEED' : fps ? ' — normal' : ' — could not measure'}`]);
+        lines.push(['Slowest screen to build', `${label(slowest.v)}, ${r1(slowest.total)} ms`]);
+        lines.push(['Each screen (ms)', draws.map((d) => `${label(d.v)} ${r1(d.total)}`).join(' · ')]);
+        lines.push(['Your last tab taps', nav.length ? `${pl(nav.length, 'tap')} · on screen in ${r1(med(nav.map((x) => x.shown)))} ms (worst ${r1(Math.max(...nav.map((x) => x.shown)))})` : 'none yet — tap a few tabs, then run again']);
+        lines.push(['Your last swipes', drag.length ? `${pl(drag.length, 'swipe')} · ${r1(med(drag.map((x) => x.fps)))} frames a second · next screen ready in ${r1(med(sw.map((x) => x.build)))} ms` : 'none yet — swipe between tabs, then run again']);
+        lines.push(['Your last scrolls', scr.length ? `${pl(scr.length, 'scroll')} · ${r1(med(scr.map((x) => x.fps)))} frames a second · longest stall ${r1(Math.max(...scr.map((x) => x.worst)))} ms` : 'none yet — scroll a long list, then run again']);
+        lines.push(['Opening a record', opn.length ? `${opn.length} opened · on screen in ${r1(med(opn.map((x) => x.shown)))} ms (worst ${r1(Math.max(...opn.map((x) => x.shown)))})` : 'none yet — open a bid, then run again']);
+        lines.push(['Records · offline copy', `${records.toLocaleString()} · ${copyKB} KB`]);
+        lines.push(['Phone', `${os} · ${screen.width}×${screen.height} @${window.devicePixelRatio || 1}x · ${installed ? 'installed app' : 'browser tab'}`]);
+        lines.push(['Version', `${APP_VERSION} · ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`]);
+        const verdict = half
+          ? `Your phone is drawing this app at <b>${r1(fps)} frames a second</b>, half the normal 60. iPhones do that to web apps in <b>Low Power Mode</b> (Settings → Battery) or when the phone is hot. While that is on, every swipe and scroll here moves at half speed and nothing in the app can change it.`
+          : slowest.total > 60 ? `The phone is drawing at full speed. The <b>${label(slowest.v)}</b> screen takes ${r1(slowest.total)} ms to build, which is long enough to feel. That screen is the one to slim down.`
+            : `The phone is drawing at full speed and every screen builds in ${r1(slowest.total)} ms or less, which is faster than you can see. If it still feels slow, use the app for a minute (tap tabs, swipe, scroll, open a bid) and run this again: the "your last…" lines show what happened on those.`;
+        const html = `<p>${verdict}</p><table class="speed-t">${lines.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table><p style="color:var(--muted);font-size:12.5px">Screenshot this, or tap Copy results, and send it to Claude.</p>`;
+        const text = 'KCAPEX Command Center speed check\n' + lines.map(([a, b]) => `${a}: ${b}`).join('\n');
+        this.report = { html, text }; render();
+        const out = $('#speed-out'); if (out) out.scrollIntoView({ block: 'start' });
+      },
+    };
+    // On phones, say so once when the phone itself is drawing at half speed (Low Power Mode), so the app isn't blamed.
+    setTimeout(async () => {
+      if (!matchMedia('(max-width: 899px)').matches || document.visibilityState !== 'visible') return;
+      const fps = await window.kcPerf.frameRate(900);
+      if (fps > 0 && fps < 40 && document.visibilityState === 'visible') toast(`Your phone is drawing this app at half speed (${Math.round(fps)} frames a second). Low Power Mode does that: Settings → Battery.`, 7000);
+    }, 4000);
+  })();
 
   // ---------- Boot ----------
   $('#today').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });

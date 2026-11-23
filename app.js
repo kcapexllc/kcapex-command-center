@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-29';
+  const APP_VERSION = '2026.11.23-30';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -778,6 +778,7 @@
   const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
   const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch (_) { return d; } };
   const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* private mode */ } };
+  let chatQueue = [];
   let chatModel = pref('kc.model', 'claude-sonnet-5-5'), chatEffort = pref('kc.effort', 'high'), modelMenu = false, editIdx = null;
   const modelName = (id) => (MODELS.find((m) => m.id === id) || MODELS[1]).name;
   const effortName = (e) => (EFFORTS.find((x) => x[0] === e) || EFFORTS[2])[1];
@@ -940,13 +941,13 @@
     const focus = askFocus ? `<div class="focus-chip">Talking about bid <b>${esc(askFocus.sol || askFocus.title || '')}</b> <button data-action="chat-unfocus" aria-label="Stop focusing on this bid">✕</button></div>` : '';
     const files = chatFiles.length ? `<div class="cfiles-n">${chatFiles.length} of ${MAX_FILES} files</div><div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.pending ? '⏳' : f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.pending ? ' <em>reading…</em>' : f.label ? ` <em>${esc(f.label)}</em>` : ''} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
     return `<div class="chatwrap">${head}${listHtml}
-      <div class="chatbox"><div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
+      <div class="chatbox"><div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}${chatQueue.map((x, i) => `<div class="msg user queued">${x.fileNames.length ? `<div class="mfiles">${x.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(x.text || 'Please look at the attached files.')}</div><div class="qmeta">Queued · ${i === 0 ? 'next' : `${i + 1} in line`} <button type="button" data-unqueue="${i}" aria-label="Remove from queue">✕</button></div>`).join('')}</div>
       <button class="jump-btn" id="jump-btn" type="button" aria-label="Jump to the newest message" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="attach-btn" data-action="chat-attach" aria-label="Attach files" title="Attach files"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         <textarea id="ask-in" placeholder="Reply to Claude…" rows="1" enterkeyhint="send">${esc(chatDraft)}</textarea>
         ${chatBusy ? '' : `<button class="mic-btn ${micOn ? 'on' : ''}" id="mic-btn" type="button" data-action="chat-mic" aria-label="${micOn ? 'Stop talking' : 'Talk'}" aria-pressed="${micOn}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`}
-        ${chatBusy ? '<button class="send-btn stop" data-action="chat-stop" aria-label="Stop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>' : '<button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'}</div>
+        ${chatBusy ? '<button class="send-btn stop" data-action="chat-stop" aria-label="Stop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send (queued until Claude finishes)"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : '<button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'}</div>
         <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>＋</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
         <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
         <div class="comp-foot"><button type="button" class="model-chip" data-action="model-menu" aria-haspopup="menu">${esc(modelName(chatModel))} · ${esc(effortName(chatEffort))} <span>▾</span></button><span class="chat-foot">Can search the web and update your records.</span></div>
@@ -1176,8 +1177,18 @@
     return { id, name: a.name, type: a.type, label: a.label };
   }
 
-  async function askClaude(preset, retry, editAt) {
-    if (chatBusy) return;
+  // Questions sent while Claude is still answering wait in line and are answered one after another, in the order sent.
+  async function askClaude(preset, retry, editAt, fromQueue) {
+    if (chatBusy) {
+      if (retry || editAt != null) return;
+      const inp0 = $('#ask-in'), q0 = String(preset || (inp0 && inp0.value) || '').trim();
+      if (chatFiles.some((f) => f.pending)) { toast('Still reading your file. One moment.'); return; }
+      if (!q0 && !chatFiles.length) return;
+      if (micOn) stopMic();
+      chatQueue.push({ text: q0, files: chatFiles, fileNames: chatFiles.map((f) => f.name) });
+      chatDraft = ''; chatFiles = []; if (inp0) inp0.value = '';
+      render(); scrollChat(); return;
+    }
     if (micOn) stopMic();
     const inp = $('#ask-in') || $('#ask-home');
     const q = retry ? '' : (editAt != null ? String(preset || '') : (preset || (inp && inp.value) || '')).trim();
@@ -1199,7 +1210,7 @@
     else { userMsg = { role: 'user', text: q || 'Please look at the attached files.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }; msgs.push(userMsg); }
     const reply = { role: 'assistant', text: '', tools: [], model: chatModel, effort: chatEffort }; msgs.push(reply);
     const files0 = files; editIdx = null;
-    live.msgs = msgs; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Uploading your files…' : 'Thinking…';
+    live.msgs = msgs; if (!fromQueue) chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Uploading your files…' : 'Thinking…';
     const ctrl = new AbortController(); chatBusy = ctrl; shownLen = 0;
     render(); scrollChat();
     let wrote = false;
@@ -1292,6 +1303,9 @@
     live.msgs = null;
     if (wrote) { toast('Claude updated your command center'); if (window.kcPull) window.kcPull(); }
     if (ui.view === 'ask') { render(); scrollChat(); }
+    // Next question in line, if any.
+    // (askClaude takes its files before its first pause, so anything you're attaching in the box meanwhile is kept.)
+    if (chatQueue.length) { const nx = chatQueue.shift(); setTimeout(() => { const keepFiles = chatFiles; chatFiles = nx.files; askClaude(nx.text || ' ', false, null, true); chatFiles = keepFiles; if (ui.view === 'ask') render(); }, 80); }
   }
   function syncLine(long) {
     const m = window.kcMeta || {}; const t = (iso) => { if (!iso) return 'never'; const d = new Date(iso); return isNaN(d) ? 'never' : (isoDay(d) === isoDay() ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ') + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
@@ -1418,6 +1432,7 @@
     const qk = e.target.closest('[data-quick]'); if (qk) { if (ui.view !== 'ask') { chatId = null; askFocus = null; } askClaude(qk.dataset.quick); return; }
     const md0 = e.target.closest('[data-model]'); if (md0) { chatModel = md0.dataset.model; setPref('kc.model', chatModel); render(); return; }
     const ef0 = e.target.closest('[data-effort]'); if (ef0) { chatEffort = ef0.dataset.effort; setPref('kc.effort', chatEffort); render(); return; }
+    const uq = e.target.closest('[data-unqueue]'); if (uq) { chatQueue.splice(Number(uq.dataset.unqueue), 1); render(); return; }
     const ed0 = e.target.closest('[data-edit]'); if (ed0) { if (!chatBusy) { editIdx = Number(ed0.dataset.edit); modelMenu = false; render(); setTimeout(() => { const t = $('#edit-in'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 30); } return; }
     if (modelMenu && !e.target.closest('.model-sheet, .model-chip')) { modelMenu = false; render(); }
     const cp = e.target.closest('[data-copy]'); if (cp) { const m = curMsgs()[Number(cp.dataset.copy)]; const txt = m ? m.text : ''; navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
@@ -1473,7 +1488,7 @@
       toast(`Closed ${n} as no-bid`);
     } else if (a === 'ask') { askClaude(); }
     else if (a === 'ask-home') { const h = $('#ask-home'); if (h && h.value.trim()) { chatId = null; askFocus = null; askClaude(h.value.trim()); } }
-    else if (a === 'chat-new') { chatId = null; chatProject = null; askFocus = null; showChats = false; chatFiles = []; render(); const i = $('#ask-in'); if (i) i.focus(); }
+    else if (a === 'chat-new') { chatQueue = []; chatId = null; chatProject = null; askFocus = null; showChats = false; chatFiles = []; render(); const i = $('#ask-in'); if (i) i.focus(); }
     else if (a === 'proj-open-list') { projView = 'list'; go('ask'); }
     else if (a === 'proj-list') { projView = 'list'; projMenu = null; render(); window.scrollTo({ top: 0 }); }
     else if (a === 'proj-back') { projView = null; render(); }

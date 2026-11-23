@@ -1,7 +1,7 @@
 // Offline cache for the app shell. Bump VERSION when you change files.
 // Speed: the app opens instantly from this cache, and each file is refreshed in the background for next time.
 // The page itself opens from the cache too; new versions arrive in the background and the app offers a Refresh.
-const VERSION = 'kcapex-cc-v37';
+const VERSION = 'kcapex-cc-v38';
 const ASSETS = ['./', './index.html', './claude-shim.js', './app.js', './styles.css', './manifest.webmanifest',
   './icons/kc-logo-192.png', './icons/kc-logo-512.png', './icons/kc-apple-touch-180.png'];
 

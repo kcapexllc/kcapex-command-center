@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-18';
+  const APP_VERSION = '2026.11.23-19';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1409,8 +1409,8 @@
       ${recents.length ? `<div class="dr-sec">Recent chats</div>${recents.map((c) => `<button class="dr-chat" data-dr-chat="${esc(c.id)}">${esc(c.title || 'Untitled')}<em>${c.projectId && folder(c.projectId) ? '📁 ' + esc(folder(c.projectId).num ? '#' + folder(c.projectId).num : 'Bid') + ' · ' : ''}${esc(ago(c.updatedAt))}</em></button>`).join('')}` : ''}
       <div class="dr-foot"><button class="dr-item" data-dr-go="more">${icon('settings')}<span>Settings and sync</span></button><span>Version ${APP_VERSION}</span></div>`;
   }
-  function openDrawer() { renderDrawer(); drawerBack.hidden = false; requestAnimationFrame(() => { document.body.classList.add('dr-open'); }); drawer.setAttribute('aria-hidden', 'false'); }
-  function closeDrawer() { document.body.classList.remove('dr-open'); drawer.setAttribute('aria-hidden', 'true'); setTimeout(() => { if (!document.body.classList.contains('dr-open')) drawerBack.hidden = true; }, 260); }
+  function openDrawer() { renderDrawer(); drawerBack.hidden = false; settleDrawer(true); }
+  function closeDrawer() { if (document.body.classList.contains('dr-open') || !drawerBack.hidden) settleDrawer(false); }
   $('#menu-btn').addEventListener('click', openDrawer);
   drawerBack.addEventListener('click', closeDrawer);
   drawer.addEventListener('click', (e) => {
@@ -1422,10 +1422,47 @@
     else if (a.dataset.drAct === 'new-chat') { chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); setTimeout(() => { const i = $('#ask-in'); if (i) i.focus(); }, 280); }
     else if (a.dataset.drAct === 'folders') { projView = 'list'; go('ask'); }
   });
+  // ---------- Spring settle ----------
+  // The let-go motion, measured frame by frame from the Claude app's side panel: a critically damped spring
+  // (stiffness 29 per second) that starts at the speed your finger was moving. It eases off into place with no
+  // bounce and no hard stop, and takes about a quarter of a second from a standing start.
+  //   distance left at time t = (d0 + (v0 + W·d0)·t) · e^(−W·t)
+  const SPRING_W = 29;
+  // Moves every part from `from` to `to` (one shared position in px; each part turns it into its own styles).
+  // v0 is the finger's speed in px per second. Returns how long it runs and a way to stop it early.
+  function runSpring(parts, from, to, v0) {
+    const d0 = from - to; let c = (v0 || 0) + SPRING_W * d0;
+    if (c * d0 < 0) c = 0; // launched fast enough to fly past its spot: cap it so it lands without overshooting
+    const left = (t) => (d0 + c * t) * Math.exp(-SPRING_W * t);
+    let ms = 0;
+    if (Math.abs(d0) > 0.5 && view.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) { ms = 80; while (ms < 480 && Math.abs(left(ms / 1000)) > 0.5) ms += 8; }
+    const anims = [];
+    if (ms) {
+      const n = Math.ceil(ms / 12);
+      parts.forEach((pt) => { const frames = []; for (let i = 0; i <= n; i++) frames.push(pt.css(i === n ? to : to + left((ms / 1000) * (i / n)))); try { anims.push(pt.el.animate(frames, { duration: ms, easing: 'linear' })); } catch (_) { /* lands at once instead */ } });
+    }
+    return { ms, cancel() { anims.forEach((a) => { try { a.cancel(); } catch (_) { /* already done */ } }); } };
+  }
+  // The side menu springs open or closed from wherever it is (your finger's position, or its resting place for a tap).
+  let drawerRun = null, drawerTimer = 0;
+  function settleDrawer(open, from, v0) {
+    const W = drawer.offsetWidth || 300;
+    if (from == null) from = Math.max(-W, Math.min(0, drawer.getBoundingClientRect().left));
+    if (drawerRun) drawerRun.cancel();
+    drawer.style.transition = 'none'; drawerBack.style.transition = 'none';
+    if (open) { drawerBack.hidden = false; document.body.classList.add('dr-open'); } else document.body.classList.remove('dr-open');
+    drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+    drawer.style.transform = ''; drawerBack.style.opacity = '';
+    drawerRun = runSpring([
+      { el: drawer, css: (x) => ({ transform: `translate3d(${x}px,0,0)` }) },
+      { el: drawerBack, css: (x) => ({ opacity: String(Math.max(0, Math.min(1, 1 + x / W))) }) },
+    ], from, open ? 0 : -W, v0);
+    clearTimeout(drawerTimer);
+    drawerTimer = setTimeout(() => { drawerRun = null; drawer.style.transition = ''; drawerBack.style.transition = ''; if (!document.body.classList.contains('dr-open')) drawerBack.hidden = true; }, drawerRun.ms + 30);
+  }
   // The menu follows your finger: drag it in from the left edge, or drag it back closed. Let go and it settles
   // open or closed depending on how far and how fast you moved.
   let dd = null;
-  const dEase = 'transform .24s cubic-bezier(.22,.8,.26,1)';
   document.addEventListener('touchstart', (e) => {
     dd = null; if (e.touches.length !== 1 || modal.open || !matchMedia('(max-width: 899px)').matches) return;
     const p = e.touches[0], open = document.body.classList.contains('dr-open');
@@ -1450,12 +1487,9 @@
     if (!dd || !dd.lock) { dd = null; return; }
     const was = dd; dd = null;
     const v = Date.now() - was.lt > 90 ? 0 : was.v;
+    // Past halfway, or flicked that way, and it carries on; otherwise it pulls back to where it started.
     const open = v > 0.3 ? true : v < -0.3 ? false : was.pos > -was.W / 2;
-    drawer.style.transition = dEase; drawerBack.style.transition = 'opacity .24s';
-    void drawer.offsetWidth;
-    if (open) document.body.classList.add('dr-open'); else document.body.classList.remove('dr-open');
-    drawer.style.transform = ''; drawerBack.style.opacity = '';
-    setTimeout(() => { drawer.style.transition = ''; drawerBack.style.transition = ''; if (!open) { drawerBack.hidden = true; drawer.setAttribute('aria-hidden', 'true'); } }, 260);
+    settleDrawer(open, was.pos, v * 1000);
   }, { passive: true });
   document.addEventListener('touchcancel', () => { if (dd && dd.lock) { drawer.style.transition = ''; drawer.style.transform = ''; drawerBack.style.transition = ''; drawerBack.style.opacity = ''; if (!dd.open) drawerBack.hidden = true; } dd = null; }, { passive: true });
 
@@ -1514,7 +1548,6 @@
   }
   window.kcWarm = warmNeighbors;
   const view = $('#view'); let g = null;
-  const EASE = 'cubic-bezier(.22,.8,.26,1)';
   const resetView = () => { view.style.transition = ''; view.style.transform = ''; view.style.opacity = ''; view.style.willChange = ''; };
   const viewTop = () => view.getBoundingClientRect().top + window.scrollY;
   // Draws `target` in a layer over the page, parked one screen-width to the side, at the spot it was last scrolled to.
@@ -1532,14 +1565,29 @@
   const dropPeeks = (was) => { ['back', 'fwd'].forEach((k) => { if (was[k + 'Peek']) { was[k + 'Peek'].layer.remove(); was[k + 'Peek'] = null; } }); };
   document.addEventListener('touchstart', (e) => {
     g = null;
-    if (pagerFinish) pagerFinish(); // a swipe is still settling: finish it now so the next one starts at once
+    const settling = !!pagerFinish;
+    if (settling) pagerFinish(); // a swipe is still settling: put it in place now so the next one starts at once
     if (e.touches.length !== 1 || modal.open || document.body.classList.contains('dr-open') || !$('#top-menu').hidden || !matchMedia('(max-width: 899px)').matches) return;
-    const t = e.target, p = e.touches[0];
+    const p = e.touches[0]; let t = e.target;
+    // The touch landed while screens were still sliding, so it may have hit the screen that was leaving (now gone).
+    // Go by what is under the finger now, and keep listening on the element the touch started on: once that
+    // element is off the page, its moves no longer reach the document.
+    if (settling) {
+      t = document.elementFromPoint(p.clientX, p.clientY) || t;
+      const tg = e.target;
+      if (tg && tg.addEventListener) {
+        const off = () => { tg.removeEventListener('touchmove', onMove); tg.removeEventListener('touchend', end); tg.removeEventListener('touchcancel', cancel); };
+        const end = (ev) => { off(); onEnd(ev); }, cancel = (ev) => { off(); onCancel(ev); };
+        tg.addEventListener('touchmove', onMove, { passive: false }); tg.addEventListener('touchend', end); tg.addEventListener('touchcancel', cancel);
+      }
+    }
     if (!t.closest || !t.closest('#view') || t.closest('input, textarea, select, .composer, .pr-menu') || scrollsSideways(t)) return;
     if (p.clientX <= 22 || p.clientX >= innerWidth - 10) return; // left edge opens the menu
     g = { x: p.clientX, y: p.clientY, t: Date.now(), lock: null, lx: p.clientX, lt: Date.now(), v: 0 };
   }, { passive: true });
-  document.addEventListener('touchmove', (e) => {
+  // Each of these may be reached twice for one event (once on the element, once on the document): handle it once.
+  const onMove = (e) => {
+    if (e.kcSeen) return; e.kcSeen = true;
     if (!g) return;
     const p = e.touches[0], dx = p.clientX - g.x, dy = p.clientY - g.y;
     if (g.lock === null) {
@@ -1552,54 +1600,64 @@
     const now = Date.now(); if (now > g.lt) { g.v = (p.clientX - g.lx) / (now - g.lt); g.lx = p.clientX; g.lt = now; }
     const side = dx > 0 ? 'back' : 'fwd', other = dx > 0 ? 'fwd' : 'back', ok = g[side], tx = ok ? dx : dx * 0.22;
     if (ok && ok.view && !g[side + 'Peek']) g[side + 'Peek'] = buildPeek(ok, dx > 0 ? -1 : 1);
-    view.style.transform = `translate3d(${tx}px,0,0)`;
+    view.style.transform = `translate3d(${tx}px,0,0)`; g.tx = tx;
     if (g[side + 'Peek']) placePeek(g[side + 'Peek'], tx + g[side + 'Peek'].dir * innerWidth);
     if (g[other + 'Peek']) placePeek(g[other + 'Peek'], g[other + 'Peek'].dir * innerWidth);
-  }, { passive: false });
-  document.addEventListener('touchend', (e) => {
+  };
+  document.addEventListener('touchmove', onMove, { passive: false });
+  const onEnd = (e) => {
+    if (e.kcSeen) return; e.kcSeen = true;
     if (!g) return; const was = g; g = null;
     if (was.lock !== 'h') return;
     if (was.meter) window.kcPerf.swipeDone(was.meter.stop());
     const W = innerWidth, p = e.changedTouches[0], dx = p.clientX - was.x, dt = Math.max(1, Date.now() - was.t), sign = dx > 0 ? 1 : -1;
     const side = dx > 0 ? 'back' : 'fwd', tgt = was[side], pk = was[side + 'Peek'];
     const v = Date.now() - was.lt > 90 ? 0 : was.v; // a finger that stopped before lifting is not a flick
-    const flick = (Math.abs(v) > 0.2 && Math.sign(v) === sign) || (Math.abs(dx) / dt > 0.3 && Math.abs(dx) > 30);
-    const commit = tgt && Math.abs(dx) > 10 && (Math.abs(dx) > W * 0.15 || flick);
+    // Where it goes when you let go, the way the Claude app decides it: a flick carries on in the flick's direction;
+    // otherwise the screen goes on only if it is (or is coasting) past halfway, and pulls back if it is not.
+    const tx = was.tx == null ? (tgt ? dx : dx * 0.22) : was.tx, coast = dx + v * 130;
+    const flick = Math.abs(v) > 0.3 && Math.sign(v) === sign && Math.abs(dx) > 16;
+    const commit = !!tgt && Math.abs(dx) > 10 && Math.sign(coast) === sign && (flick || Math.abs(coast) > W * 0.5);
+    const viewPart = { el: view, css: (x) => ({ transform: `translate3d(${x}px,0,0)` }) };
+    const peekPart = (q) => ({ el: q.inner, css: (x) => ({ transform: `translate3d(${x + q.dir * W}px,${q.y}px,0)` }) });
+    view.style.transition = 'none';
     if (commit && pk) {
-      // Let go: the top bar and tabs switch at once, and both screens glide the rest of the way.
-      // Finish at the finger's own speed (a fast flick lands almost at once), never slower than 120 ms.
-      const rest = W - Math.abs(dx), byFinger = Math.abs(v) > 0.05 ? rest / Math.abs(v) : 999;
-      const ms = Math.round(Math.max(55, Math.min(120, byFinger, 130 * (rest / W))));
+      // Carries on: the top bar and tabs switch at once, and both screens spring the rest of the way together.
       if (tgt.back) navStack.pop();
       go(tgt.view, tgt.back, true);
       const other = was[side === 'back' ? 'fwdPeek' : 'backPeek']; if (other) other.layer.remove();
-      view.style.transition = pk.inner.style.transition = `transform ${ms}ms ${EASE}`;
       view.style.transform = `translate3d(${sign * W}px,0,0)`; placePeek(pk, 0);
+      pk.inner.style.pointerEvents = 'auto'; // the arriving screen takes touches while it settles: its elements become the real screen
+      const run = runSpring([viewPart, peekPart(pk)], tx, sign * W, v * 1000);
       let timer = 0;
       pagerFinish = () => {
-        pagerFinish = null; clearTimeout(timer);
+        pagerFinish = null; clearTimeout(timer); run.cancel();
         if (ui.view === tgt.view) {
           if (pk.rev === dataRev) { view.replaceChildren(...pk.inner.childNodes); resetView(); pk.layer.remove(); window.scrollTo(0, pk.scroll); }
           else { resetView(); pk.layer.remove(); render(); window.scrollTo(0, pk.scroll); } // data changed mid-swipe: draw it fresh
         } else { resetView(); pk.layer.remove(); }
       };
-      timer = setTimeout(() => { if (pagerFinish) pagerFinish(); }, ms + 20);
+      timer = setTimeout(() => { if (pagerFinish) pagerFinish(); }, run.ms + 20);
     } else if (commit) {
-      // A step inside Ask Claude (folder list, back to a chat): switch right away and slide the new screen in.
+      // A step inside Ask Claude (folder list, back to a chat): switch right away and spring the new screen in.
       dropPeeks(was);
       if (tgt.fn) tgt.fn(); else { if (tgt.back) navStack.pop(); go(tgt.view, tgt.back); }
-      view.style.transition = 'none'; view.style.transform = `translate3d(${-sign * W * 0.3}px,0,0)`; void view.offsetWidth;
-      view.style.transition = `transform 110ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
-      setTimeout(resetView, 125);
+      view.style.transform = '';
+      const run = runSpring([viewPart], -sign * W * 0.3, 0, 0);
+      setTimeout(resetView, run.ms + 20);
     } else {
-      // Not far enough: everything slides back.
-      const ms = 110;
-      view.style.transition = `transform ${ms}ms ${EASE}`; view.style.transform = 'translate3d(0,0,0)';
-      ['back', 'fwd'].forEach((k) => { const q = was[k + 'Peek']; if (q) { q.inner.style.transition = `transform ${ms}ms ${EASE}`; placePeek(q, q.dir * W); } });
-      setTimeout(() => { resetView(); dropPeeks(was); }, ms + 20);
+      // Pulls back: both screens spring to where they started, carrying whatever speed the finger had.
+      const peeks = ['back', 'fwd'].map((k) => was[k + 'Peek']).filter(Boolean);
+      view.style.transform = 'translate3d(0,0,0)'; peeks.forEach((q) => placePeek(q, q.dir * W));
+      const run = runSpring([viewPart, ...peeks.map(peekPart)], tx, 0, v * 1000);
+      let timer = 0;
+      pagerFinish = () => { pagerFinish = null; clearTimeout(timer); run.cancel(); resetView(); dropPeeks(was); };
+      timer = setTimeout(() => { if (pagerFinish) pagerFinish(); }, run.ms + 20);
     }
-  }, { passive: true });
-  document.addEventListener('touchcancel', () => { if (g && g.lock === 'h') { resetView(); dropPeeks(g); } g = null; }, { passive: true });
+  };
+  document.addEventListener('touchend', onEnd, { passive: true });
+  const onCancel = (e) => { if (e.kcSeen) return; e.kcSeen = true; if (g && g.lock === 'h') { resetView(); dropPeeks(g); } g = null; };
+  document.addEventListener('touchcancel', onCancel, { passive: true });
 
   // ---------- ⋯ menu (top right), like the Claude app ----------
   const topMenu = $('#top-menu'), topBack = $('#top-menu-back');

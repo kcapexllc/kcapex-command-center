@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-27';
+  const APP_VERSION = '2026.11.23-28';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -769,15 +769,41 @@
       <div class="chips" style="margin-top:8px">${QUICK_ASKS.map((q) => `<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
   }
 
+  // ---------- Model and effort (like the Claude app's model menu) ----------
+  const MODELS = [
+    { id: 'claude-opus-5-5', name: 'Opus 5.5', blurb: 'Most capable, for hard bids and pricing', cost: '$$$' },
+    { id: 'claude-sonnet-5-5', name: 'Sonnet 5.5', blurb: 'Smart and fast, for everyday questions', cost: '$$' },
+    { id: 'claude-haiku-5-5', name: 'Haiku 5.5', blurb: 'Fastest and cheapest, for quick answers', cost: '$' },
+  ];
+  const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
+  const pref = (k, d) => { try { return localStorage.getItem(k) || d; } catch (_) { return d; } };
+  const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { /* private mode */ } };
+  let chatModel = pref('kc.model', 'claude-sonnet-5-5'), chatEffort = pref('kc.effort', 'high'), modelMenu = false, editIdx = null;
+  const modelName = (id) => (MODELS.find((m) => m.id === id) || MODELS[1]).name;
+  const effortName = (e) => (EFFORTS.find((x) => x[0] === e) || EFFORTS[2])[1];
+  function modelMenuHtml() {
+    return `<div class="model-sheet" role="menu"><div class="ms-h">Model</div>${MODELS.map((m) => `<button type="button" class="ms-model ${m.id === chatModel ? 'on' : ''}" data-model="${m.id}"><b>${m.name}</b><span>${esc(m.blurb)}</span><i>${m.cost}</i>${m.id === chatModel ? '<em>✓</em>' : ''}</button>`).join('')}
+      <div class="ms-h">Thinking effort</div><div class="ms-eff">${EFFORTS.map(([k, l]) => `<button type="button" class="${k === chatEffort ? 'on' : ''}" data-effort="${k}">${l}</button>`).join('')}</div>
+      <p class="ms-note">More effort means deeper thinking, slower answers and higher cost. Your choice is remembered.</p></div>`;
+  }
+  // Claude's thinking, shown live while it thinks and folded into "Thought for 6s" afterwards (tap to read it).
+  function thinkHtml(m, streaming) {
+    if (!m.think) return streaming && !m.text ? '' : '';
+    const live = streaming && !m.text, secs = Math.max(1, Math.round((m.thinkMs || 0) / 1000));
+    return `<details class="think" ${live || m.thinkOpen ? 'open' : ''}><summary>${live ? '<span class="tdot"></span> Thinking…' : `Thought for ${secs}s`}</summary><div class="think-body">${md(m.think)}</div></details>`;
+  }
   function msgHtml(m, idx, last) {
+    if (m.role === 'user' && editIdx === idx) return `<div class="msg user editing"><textarea id="edit-in" rows="3">${esc(m.text)}</textarea><div class="edit-row"><button type="button" class="btn" data-action="edit-cancel">Cancel</button><button type="button" class="btn primary" data-action="edit-send">Send</button></div></div>`;
+    if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>${chatBusy ? '' : `<div class="uacts"><button type="button" data-copy="${idx}" aria-label="Copy">⧉ Copy</button><button type="button" data-edit="${idx}" aria-label="Edit">✎ Edit</button></div>`}`;
+
     if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>`;
     const streaming = last && chatBusy;
     const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     const body = m.text ? md(m.text) : (streaming ? '' : '<p>(no answer)</p>');
-    return `<div class="msg assistant" ${streaming ? 'id="live-msg"' : ''}>${acts ? `<div class="acts">${acts}</div>` : ''}<div class="mbody">${body}</div>
+    return `<div class="msg assistant" ${streaming ? 'id="live-msg"' : ''}><div class="thinkwrap">${thinkHtml(m, streaming)}</div>${acts ? `<div class="acts">${acts}</div>` : ''}<div class="mbody">${body}</div>
       ${streaming ? `<div class="typing"><span></span><span></span><span></span> <em id="live-status">${esc(chatStatus || 'Thinking…')}</em></div>` : ''}
       ${m.error ? `<div class="merr">${esc(m.error)}</div>` : ''}
-      ${!streaming && m.text ? `<div class="mtools"><button class="copy" data-copy="${idx}">Copy</button>${last && !m.error ? '' : ''}</div>` : ''}${!streaming && last && m.error ? '<div class="mtools"><button class="copy" data-action="chat-retry">Try again</button></div>' : ''}</div>`;
+      ${!streaming ? `<div class="mtools">${m.text ? `<button class="copy" data-copy="${idx}">⧉ Copy</button>` : ''}${last ? `<button class="copy" data-action="chat-retry">↻ ${m.error ? 'Try again' : 'Retry'}</button>` : ''}${m.model ? `<span class="mmodel">${esc(modelName(m.model))}${m.effort ? ' · ' + esc(effortName(m.effort)) : ''}</span>` : ''}</div>` : ''}</div>`;
   }
 
   // ---------- Bid folders (like Claude Projects) ----------
@@ -901,7 +927,8 @@
         ${chatBusy ? '<button class="send-btn stop" data-action="chat-stop" aria-label="Stop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>' : '<button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'}</div>
         <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>＋</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
         <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
-        <p class="chat-foot">Claude can search the web and change records in this app when you ask. It can't send email or submit bids.</p></div></div>`;
+        <div class="comp-foot"><button type="button" class="model-chip" data-action="model-menu" aria-haspopup="menu">${esc(modelName(chatModel))} · ${esc(effortName(chatEffort))} <span>▾</span></button><span class="chat-foot">Can search the web and update your records.</span></div>
+        ${modelMenu ? modelMenuHtml() : ''}</div></div>`;
   }
 
   function snapshot() {
@@ -946,6 +973,9 @@
     // Long answers: redraw every other frame so the phone isn't re-laying out a big message 60 times a second.
     revealFrame = (revealFrame + 1) % 2;
     if (target.length < 4000 || revealFrame === 0 || shownLen >= target.length) el.querySelector('.mbody').innerHTML = md(target.slice(0, shownLen));
+    // Thinking panel: open and growing while Claude thinks, folds to "Thought for Ns" once the answer starts.
+    const tw = el.querySelector('.thinkwrap'), tkey = (m.think || '').length + '|' + (m.text ? 1 : 0);
+    if (tw && m.think && tw._k !== tkey) { const d = tw.querySelector('details'), keepOpen = d && tw._k && tw._k.endsWith('|1') ? d.open : false; tw.innerHTML = thinkHtml(m, true); const nd = tw.querySelector('details'); if (nd && m.text) nd.open = keepOpen; tw._k = tkey; const tb = tw.querySelector('.think-body'); if (tb) tb.scrollTop = tb.scrollHeight; }
     const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
     const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
@@ -958,7 +988,7 @@
     if (!chatId) return;
     const prev = (data.chats || {})[chatId] || {};
     const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
-    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}) })).slice(-60);
+    const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}), ...(m.think ? { think: m.think.slice(0, 20000), thinkMs: m.thinkMs || 0 } : {}), ...(m.model ? { model: m.model, effort: m.effort } : {}) })).slice(-60);
     const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean, ...(prev.projectId || chatProject ? { projectId: prev.projectId || chatProject } : {}) };
 
     data.chats = { ...(data.chats || {}), [chatId]: body };
@@ -1124,12 +1154,13 @@
     return { id, name: a.name, type: a.type, label: a.label };
   }
 
-  async function askClaude(preset, retry) {
+  async function askClaude(preset, retry, editAt) {
     if (chatBusy) return;
     if (micOn) stopMic();
     const inp = $('#ask-in') || $('#ask-home');
-    const q = retry ? '' : (preset || (inp && inp.value) || '').trim();
+    const q = retry ? '' : (editAt != null ? String(preset || '') : (preset || (inp && inp.value) || '')).trim();
     if (!retry && !q && !chatFiles.length) return;
+    modelMenu = false;
     projView = null;
     if (ui.view !== 'ask') { showChats = false; go('ask'); }
     if (!chatId) chatId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1138,8 +1169,14 @@
     const files = retry ? [] : chatFiles;
     let userMsg = null;
     if (retry) { if (msgs.length && msgs[msgs.length - 1].role === 'assistant') msgs.pop(); }
+    else if (editAt != null) {
+      // Edit a sent message: everything after it is replaced by a fresh answer, like editing a message in Claude.
+      const old = msgs[editAt] || {}; msgs = msgs.slice(0, editAt);
+      userMsg = { role: 'user', text: q, ...(old.fileNames ? { fileNames: old.fileNames } : {}), ...(old.fileRefs ? { fileRefs: old.fileRefs } : {}) }; msgs.push(userMsg);
+    }
     else { userMsg = { role: 'user', text: q || 'Please look at the attached files.', ...(files.length ? { fileNames: files.map((f) => f.name) } : {}) }; msgs.push(userMsg); }
-    const reply = { role: 'assistant', text: '', tools: [] }; msgs.push(reply);
+    const reply = { role: 'assistant', text: '', tools: [], model: chatModel, effort: chatEffort }; msgs.push(reply);
+    const files0 = files; editIdx = null;
     live.msgs = msgs; chatDraft = ''; chatFiles = []; chatStatus = files.length ? 'Uploading your files…' : 'Thinking…';
     const ctrl = new AbortController(); chatBusy = ctrl; shownLen = 0;
     render(); scrollChat();
@@ -1159,7 +1196,8 @@
       const send = msgs.slice(0, -1).map((m) => ({ role: m.role, text: m.text, fileNames: m.fileNames, fileRefs: m.fileRefs }));
       const project = projPayload(curProjectId());
       const apply = (ev, cont) => {
-        if (ev.t === 'text') { reply.text += ev.d; chatStatus = 'Writing…'; }
+        if (ev.t === 'text') { if (reply.thinkAt && !reply.thinkMs) reply.thinkMs = Date.now() - reply.thinkAt; reply.text += ev.d; chatStatus = 'Writing…'; }
+        else if (ev.t === 'think') { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = (reply.think || '') + ev.d; chatStatus = 'Thinking…'; }
         else if (ev.t === 'status') { if (!reply.text) chatStatus = ev.d; }
         else if (ev.t === 'tool') { reply.tools.push({ d: ev.d, write: !!ev.write }); if (ev.write) wrote = true; }
         else if (ev.t === 'error') reply.error = ev.d;
@@ -1168,7 +1206,7 @@
       const sleep = (ms) => new Promise((res, rej) => { const t = setTimeout(res, ms); ctrl.signal.addEventListener('abort', () => { clearTimeout(t); rej(Object.assign(new Error('Stopped'), { name: 'AbortError' })); }, { once: true }); });
       // Fast path: stream the answer live, word by word (most questions finish well inside the ~25 s a request may run).
       async function stream(msgsToSend) {
-        const r = await fetch('/api/chat', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: msgsToSend, snapshot: snapshot(), project }) });
+        const r = await fetch('/api/chat', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: msgsToSend, snapshot: snapshot(), project, model: chatModel, effort: chatEffort }) });
         if (r.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
         if (!r.ok || !r.body) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `Claude could not answer (error ${r.status}).`); }
         const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', done = false, more = false;
@@ -1187,7 +1225,7 @@
       async function background(msgsToSend, keepText) {
         const base = keepText ? reply.text : '', baseTools = keepText ? [...reply.tools] : [];
         const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-        const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: msgsToSend, snapshot: snapshot(), project }) });
+        const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: msgsToSend, snapshot: snapshot(), project, model: chatModel, effort: chatEffort }) });
         if (st.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
         if (!st.ok) throw new Error(`Claude could not start (error ${st.status}).`);
         let lastChange = Date.now(), lastUpdated = 0, misses = 0;
@@ -1199,6 +1237,8 @@
           if (j.pending) { if (Date.now() - lastChange > 60000) throw new Error('Claude did not start. Try again.'); continue; }
           if (j.updated !== lastUpdated) { lastUpdated = j.updated; lastChange = Date.now(); }
           else if (Date.now() - lastChange > 120000) throw new Error('Claude stopped responding. Try again.');
+          if (j.think) { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = (keepText ? reply.think || '' : '') + j.think; }
+          if (j.text && reply.thinkAt && !reply.thinkMs) reply.thinkMs = Date.now() - reply.thinkAt;
           reply.text = base + (j.text || ''); reply.tools = [...baseTools, ...(j.tools || [])];
           if (reply.tools.some((t) => t.write)) wrote = true;
           chatStatus = j.text ? 'Writing…' : (j.status || 'Thinking…');
@@ -1352,6 +1392,10 @@
   document.addEventListener('click', async (e) => {
     if (e.target.closest('[data-stop]')) return; // links inside cards
     const qk = e.target.closest('[data-quick]'); if (qk) { if (ui.view !== 'ask') { chatId = null; askFocus = null; } askClaude(qk.dataset.quick); return; }
+    const md0 = e.target.closest('[data-model]'); if (md0) { chatModel = md0.dataset.model; setPref('kc.model', chatModel); render(); return; }
+    const ef0 = e.target.closest('[data-effort]'); if (ef0) { chatEffort = ef0.dataset.effort; setPref('kc.effort', chatEffort); render(); return; }
+    const ed0 = e.target.closest('[data-edit]'); if (ed0) { if (!chatBusy) { editIdx = Number(ed0.dataset.edit); modelMenu = false; render(); setTimeout(() => { const t = $('#edit-in'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 30); } return; }
+    if (modelMenu && !e.target.closest('.model-sheet, .model-chip')) { modelMenu = false; render(); }
     const cp = e.target.closest('[data-copy]'); if (cp) { const m = curMsgs()[Number(cp.dataset.copy)]; const txt = m ? m.text : ''; navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
     const ch = e.target.closest('[data-chat]'); if (ch) { if (!chatBusy) { chatId = ch.dataset.chat; chatProject = (data.chats[chatId] || {}).projectId || null; askFocus = null; showChats = false; projView = null; render(); scrollChat(); } return; }
     const pj = e.target.closest('[data-proj]'); if (pj) { openProject(pj.dataset.proj); return; }
@@ -1420,6 +1464,9 @@
     else if (a === 'chat-stop') { if (chatBusy) chatBusy.abort(); }
     else if (a === 'chat-retry') { askClaude('', true); }
     else if (a === 'chat-unfocus') { askFocus = null; render(); }
+    else if (a === 'model-menu') { modelMenu = !modelMenu; render(); }
+    else if (a === 'edit-cancel') { editIdx = null; render(); }
+    else if (a === 'edit-send') { const v = ($('#edit-in') || {}).value || ''; const at = editIdx; if (v.trim() && at != null) askClaude(v, false, at); }
     else if (a === 'chat-mic') { if (micOn) stopMic(); else startMic(); }
     else if (a === 'kbd-mic') { const h = $('#attach-help'); if (h) h.hidden = true; const i = $('#ask-in'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
     else if (a === 'chat-attach') { const f = $('#chat-file'); if (f) f.click(); }

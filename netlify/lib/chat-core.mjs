@@ -8,6 +8,9 @@ import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
 
 // Sonnet keeps the cost per question low; set CLAUDE_MODEL in Netlify to use another model.
 const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
+// The models and effort levels the app's picker offers (like the Claude app's model menu).
+const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"];
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const MAX_TURNS = 8;
 const STATUSES = ["found", "reviewing", "bid", "submitted", "awarded", "lost", "no-bid", "cancelled"];
 const COLL = { bids: "opportunities", new_opportunities: "inbox", contracts: "contracts", invoices: "invoices", contacts: "contacts", subs: "subs", past_performance: "pastperf", tasks: "tasks", site_visits: "visits", messages: "messages", leads: "leads", jobs: "jobs" };
@@ -229,6 +232,8 @@ export async function runChat(body, send, deadline = Infinity) {
   const history = (Array.isArray(body && body.messages) ? body.messages : []).filter((m) => m && (m.role === "user" || m.role === "assistant")).slice(-30);
   // KC_ANTHROPIC_KEY is the owners' own Anthropic key: billed by Anthropic directly instead of Netlify credits.
   const ownKey = process.env.KC_ANTHROPIC_KEY, gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
+  const model = MODELS.includes(body && body.model) ? body.model : MODEL;
+  const effort = EFFORTS.includes(body && body.effort) ? body.effort : (model === "claude-sonnet-5-5" ? "high" : "medium");
   try {
     if (!history.length || history[history.length - 1].role !== "user") { send({ t: "error", d: "Ask something first." }); return; }
     if (!ownKey && !process.env.ANTHROPIC_API_KEY && !(gwKey && gwUrl)) {
@@ -242,13 +247,16 @@ export async function runChat(body, send, deadline = Infinity) {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (deadline - Date.now() < 2500) { send({ t: "cont" }); return; }
       // Refusal fallbacks are not used here: Netlify's AI Gateway does not pass beta headers through.
-      const s = client.messages.stream({ model: MODEL, max_tokens: 16000, system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }], tools: TOOLS, messages });
+      // Thinking is always on for these models (adaptive); the summary streams so the app can show it, like Claude's
+      // "Thinking" panel. Effort sets how hard it thinks.
+      const s = client.messages.stream({ model, max_tokens: effort === "max" || effort === "xhigh" ? 32000 : 16000, thinking: { type: "adaptive", display: "summarized" }, output_config: { effort }, system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }], tools: TOOLS, messages });
       s.on("text", (d) => send({ t: "text", d }));
       s.on("streamEvent", (ev) => {
         if (ev.type !== "content_block_start") return;
         if (ev.content_block.type === "server_tool_use") send({ t: "status", d: "Searching the web…" });
-        else if (ev.content_block.type === "thinking") send({ t: "status", d: "Thinking it through…" });
+        else if (ev.content_block.type === "thinking") send({ t: "status", d: "Thinking…" });
       });
+      s.on("streamEvent", (ev) => { if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "thinking_delta" && ev.delta.thinking) send({ t: "think", d: ev.delta.thinking }); });
       let timedOut = false;
       const timer = deadline === Infinity ? null : setTimeout(() => { timedOut = true; s.abort(); }, deadline - Date.now());
       let msg;

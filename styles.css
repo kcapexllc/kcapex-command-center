@@ -556,3 +556,38 @@ button, .card, .tile, .chip { -webkit-user-select: none; user-select: none; -web
 @keyframes kcMicPulse { from { transform: scale(.85); opacity: 1; } to { transform: scale(1.35); opacity: 0; } }
 .composer textarea.unsure { color: color-mix(in srgb, var(--text) 62%, transparent); }
 body.kc-listening .composer { border-color: rgba(220, 38, 38, .5); }
+
+/* ---------- Claude-style AI controls ---------- */
+.composer { position: relative; }
+.comp-foot { display: flex; align-items: center; gap: 8px; margin: 6px 4px 0; min-width: 0; }
+.comp-foot .chat-foot { margin: 0; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.model-chip { position: relative; flex: none; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.model-chip span { color: var(--muted); font-size: 10px; margin-left: 2px; }
+.model-chip::after { content: ''; position: absolute; inset: -7px -4px; }
+.model-sheet { position: absolute; left: 6px; right: 6px; bottom: calc(100% + 8px); z-index: 6; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 16px 40px var(--shadow); padding: 8px; animation: kcSheet .16s ease-out; }
+@keyframes kcSheet { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+.ms-h { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 4px; }
+.ms-model { display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto; column-gap: 8px; width: 100%; text-align: left; border: 0; background: none; border-radius: 12px; padding: 9px 10px; font: inherit; color: var(--text); cursor: pointer; }
+.ms-model b { font-size: 15px; } .ms-model span { grid-column: 1; font-size: 12.5px; color: var(--muted); } .ms-model i { grid-row: 1; grid-column: 2; font-style: normal; font-size: 12px; color: var(--muted); }
+.ms-model em { grid-row: 1 / span 2; grid-column: 3; align-self: center; font-style: normal; color: var(--accent); font-weight: 800; }
+.ms-model.on { background: color-mix(in srgb, var(--blue) 10%, transparent); }
+.ms-eff { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 2px 6px 4px; }
+.ms-eff button { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 10px; padding: 8px 2px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.ms-eff button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ms-note { margin: 6px 10px 4px; font-size: 11.5px; color: var(--muted); }
+/* Thinking panel */
+.think { margin: 0 0 8px; border-left: 2px solid var(--line); padding-left: 10px; }
+.think summary { cursor: pointer; list-style: none; font-size: 13px; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.think summary::-webkit-details-marker { display: none; }
+.think summary::after { content: '›'; transition: transform .15s; } .think[open] summary::after { transform: rotate(90deg); }
+.think-body { margin-top: 6px; font-size: 13px; color: var(--muted); max-height: 220px; overflow-y: auto; }
+.think-body p { margin: 0 0 6px; }
+.tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); animation: kcdot 1.2s infinite ease-in-out; }
+/* Message actions */
+.uacts { align-self: flex-end; display: flex; gap: 4px; margin: -2px 2px 4px; }
+.uacts button, .mtools .copy { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.mtools { align-items: center; flex-wrap: wrap; }
+.mmodel { font-size: 11.5px; color: var(--muted); margin-left: auto; }
+.msg.user.editing { width: 100%; max-width: 100%; background: var(--panel); border: 1px solid var(--blue); color: var(--text); }
+.msg.user.editing textarea { width: 100%; border: 0; background: transparent; font: inherit; font-size: 16px; color: inherit; resize: vertical; outline: none; }
+.edit-row { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }

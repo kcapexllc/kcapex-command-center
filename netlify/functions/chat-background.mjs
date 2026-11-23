@@ -11,13 +11,14 @@ export default async (req) => {
   const id = String(body.jobId || "");
   if (!/^[a-z0-9]{8,40}$/.test(id)) return;
   const jobs = getStore({ name: "jobs", consistency: "strong" });
-  const state = { text: "", tools: [], status: "Thinking…", error: "", done: false, updated: Date.now() };
+  const state = { text: "", think: "", tools: [], status: "Thinking…", error: "", done: false, updated: Date.now() };
   let timer = null, writing = Promise.resolve();
   const flush = () => { timer = null; state.updated = Date.now(); const snap = JSON.stringify(state); writing = writing.then(() => jobs.set(id, snap)).catch(() => {}); return writing; };
   const later = () => { if (!timer) timer = setTimeout(flush, 250); };
   await flush();
   await runChat(body, (ev) => {
     if (ev.t === "text") state.text += ev.d;
+    else if (ev.t === "think") state.think += ev.d;
     else if (ev.t === "status") state.status = ev.d;
     else if (ev.t === "tool") state.tools.push({ d: ev.d, write: !!ev.write });
     else if (ev.t === "error") state.error = ev.d;

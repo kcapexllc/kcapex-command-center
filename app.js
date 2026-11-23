@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-26';
+  const APP_VERSION = '2026.11.23-27';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -967,12 +967,16 @@
 
   // ----- Talk instead of type -----
   // Tap the microphone and speak: each word appears in the message box as it is heard (still-unsure words show
-  // lighter until they settle), the way dictation looks in the Claude app. Tap again to stop, edit if you like, send.
-  let micOn = false, rec = null, recBase = '';
-  function micUI() {
+  // lighter until they settle). iPhone's speech recognition is unreliable inside home-screen apps, so:
+  //  - it listens in short rounds that restart on their own (iPhone handles that far better than one long session),
+  //  - the keyboard is NOT opened while listening (on iPhone the keyboard can cut the microphone off),
+  //  - if no words arrive within a few seconds, it stops instead of hanging and shows the keyboard-mic way.
+  let micOn = false, rec = null, recBase = '', heard = '', gotAny = false, watchdog = 0;
+  const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  function micUI(state) {
     const b = $('#mic-btn'), t = $('#ask-in');
     if (b) { b.classList.toggle('on', micOn); b.setAttribute('aria-pressed', String(micOn)); b.setAttribute('aria-label', micOn ? 'Stop talking' : 'Talk'); }
-    if (t) t.placeholder = micOn ? 'Listening… start talking' : 'Reply to Claude…';
+    if (t) t.placeholder = micOn ? (state || 'Listening… start talking') : 'Reply to Claude…';
     document.body.classList.toggle('kc-listening', micOn);
   }
   function setDraft(text, unsure) {
@@ -980,28 +984,54 @@
     t.value = text; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 160) + 'px';
     t.classList.toggle('unsure', !!unsure); t.scrollTop = t.scrollHeight;
   }
+  const tidy = (x) => { x = x.replace(/\s+/g, ' ').replace(/^\s/, ''); return x.charAt(0).toUpperCase() + x.slice(1); };
+  function keyboardMicHelp(why) {
+    stopMic();
+    const el = $('#attach-help');
+    if (el) { el.innerHTML = `<b>${esc(why)}</b> Use your keyboard's microphone instead: tap the message box, then the <b>🎙</b> at the bottom right of the keyboard. It spells your words out as you speak. <button type="button" data-action="kbd-mic">Open the keyboard</button>`; el.hidden = false; }
+    else toast(why + ' Tap the message box, then the 🎙 on the keyboard.', 6000);
+  }
+  function round() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.continuous = !IOS; rec.interimResults = true; rec.maxAlternatives = 1;
+    rec.onaudiostart = () => { if (micOn && !gotAny) micUI('Listening… start talking'); };
+    rec.onresult = (e) => {
+      let fin = '', guess = '';
+      for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else guess += r[0].transcript; }
+      if ((fin + guess).trim()) { gotAny = true; clearTimeout(watchdog); }
+      heard = fin;
+      setDraft(tidy(recBase + fin + (guess ? (fin ? ' ' : '') + guess : '')), !!guess);
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return; // a quiet round: the next one starts on its own
+      const why = { 'not-allowed': 'The microphone isn’t allowed for this app.', 'service-not-allowed': 'Your iPhone isn’t letting this app use speech recognition.', 'audio-capture': 'No microphone was found.', network: 'Voice typing needs an internet connection.' }[e.error] || 'Voice typing stopped.';
+      keyboardMicHelp(why);
+    };
+    rec.onend = () => {
+      // Keep what was heard this round, then start the next round while the mic is still on.
+      if (heard) { recBase = tidy(recBase + heard) + ' '; heard = ''; setDraft(recBase.trimEnd(), false); }
+      if (micOn) { try { round(); } catch (_) { stopMic(); } }
+    };
+    rec.start();
+  }
   function startMic() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast('Voice typing isn’t available here. Tap the message box and use the 🎙 on your keyboard instead.', 5000); return; }
-    try {
-      rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
-      const t = $('#ask-in'); recBase = (t ? t.value : chatDraft).replace(/\s+$/, ''); if (recBase) recBase += ' ';
-      rec.onresult = (e) => {
-        let fin = '', guess = '';
-        for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else guess += r[0].transcript; }
-        const text = (recBase + fin + guess).replace(/\s+/g, ' ').replace(/^\s/, '');
-        setDraft(text.charAt(0).toUpperCase() + text.slice(1), !!guess);
-      };
-      rec.onerror = (e) => {
-        const why = { 'not-allowed': 'Allow the microphone for this app (iPhone Settings → Safari → Microphone), then try again.', 'service-not-allowed': 'Allow the microphone and Siri & Dictation, then try again.', 'no-speech': 'Didn’t hear anything. Tap the mic and try again.', 'audio-capture': 'No microphone found.', network: 'Voice typing needs an internet connection.' }[e.error];
-        if (why) toast(why, 5000);
-      };
-      rec.onend = () => { micOn = false; rec = null; const t2 = $('#ask-in'); if (t2) t2.classList.remove('unsure'); micUI(); };
-      rec.start(); micOn = true; micUI();
-      const t3 = $('#ask-in'); if (t3) t3.focus({ preventScroll: true });
-    } catch (err) { micOn = false; rec = null; micUI(); toast('Couldn’t start the microphone. Try again.'); }
+    if (!SR) { keyboardMicHelp('Voice typing isn’t available in this app on your phone.'); return; }
+    const t = $('#ask-in'); if (t && document.activeElement === t) t.blur(); // the keyboard can cut the mic off on iPhone
+    const help = $('#attach-help'); if (help) help.hidden = true;
+    recBase = (t ? t.value : chatDraft).replace(/\s+$/, ''); if (recBase) recBase += ' ';
+    heard = ''; gotAny = false; micOn = true; micUI('Starting the microphone…');
+    try { round(); } catch (err) { keyboardMicHelp('Couldn’t start the microphone.'); return; }
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => { if (micOn && !gotAny) keyboardMicHelp('I couldn’t hear anything through this app.'); }, 7000);
   }
-  function stopMic() { if (rec) { try { rec.stop(); } catch (_) { /* already stopped */ } } micOn = false; micUI(); }
+  function stopMic() {
+    clearTimeout(watchdog); micOn = false;
+    if (rec) { const r = rec; rec = null; try { r.onend = null; r.stop(); } catch (_) { /* already stopped */ } }
+    if (heard) { recBase = tidy(recBase + heard) + ' '; heard = ''; }
+    const t = $('#ask-in'); if (t) { t.classList.remove('unsure'); if (recBase.trim()) setDraft(recBase.trimEnd(), false); }
+    micUI();
+  }
 
   // ----- Attachments -----
   // PDFs: long ones with real text go to Claude as text (cheaper, no size limit); scanned or short ones go
@@ -1391,6 +1421,7 @@
     else if (a === 'chat-retry') { askClaude('', true); }
     else if (a === 'chat-unfocus') { askFocus = null; render(); }
     else if (a === 'chat-mic') { if (micOn) stopMic(); else startMic(); }
+    else if (a === 'kbd-mic') { const h = $('#attach-help'); if (h) h.hidden = true; const i = $('#ask-in'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
     else if (a === 'chat-attach') { const f = $('#chat-file'); if (f) f.click(); }
     else if (a === 'ask-bid') {
       const o = data.opportunities[editing.id]; if (!o) return; modal.close();

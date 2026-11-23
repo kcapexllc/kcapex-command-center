@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-21';
+  const APP_VERSION = '2026.11.23-22';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1705,6 +1705,37 @@
     else if (a === 'speed') window.kcPerf.run();
     else if (a === 'signout') location.href = '/__logout';
   });
+
+  // ---------- Press highlight (like the Claude app) ----------
+  // Touch a button and a soft highlight appears around it: a circle on round icon buttons, a pill behind the icon on
+  // the bottom tabs, a tint over menu rows, buttons and cards. It is one floating layer, so it still shows when a tap
+  // redraws the button underneath. Things inside scrolling lists wait a moment first, so starting a scroll doesn't flash.
+  (() => {
+    const dot = document.createElement('div'); dot.className = 'press-dot'; dot.setAttribute('aria-hidden', 'true'); document.body.appendChild(dot);
+    const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .pr-more, .ci-act, .fab';
+    const ANY = ROUND + ', .tabbar button, .dr-item, .dr-new, .dr-chat, .top-menu button, .chip, .btn, .tile, .card, .pr-open, .pc-row, .chat-item .ci-open, .proj-chip, .kpi[data-go], .deadline[data-open]';
+    let shownAt = 0, delay = 0, start = null, offTimer = 0;
+    function show(el) {
+      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      let x = r.left, y = r.top, w = r.width, h = r.height, rad = cs.borderRadius && cs.borderRadius !== '0px' ? cs.borderRadius : '12px';
+      if (el.matches(ROUND)) { const d = Math.max(w, h) + 14; x = r.left + w / 2 - d / 2; y = r.top + h / 2 - d / 2; w = h = d; rad = '50%'; }
+      else if (el.closest('.tabbar')) { const pw = Math.min(w - 4, 62), ph = Math.min(h - 8, 50); x = r.left + (w - pw) / 2; y = r.top + 4; w = pw; h = ph; rad = '16px'; }
+      dot.className = 'press-dot' + (el.closest('.topbar, .dr-new, .send-btn, .fab, .btn.primary') ? ' light' : '');
+      Object.assign(dot.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', borderRadius: rad });
+      void dot.offsetWidth; dot.classList.add('on'); shownAt = Date.now();
+    }
+    function hide() { clearTimeout(delay); start = null; clearTimeout(offTimer); offTimer = setTimeout(() => dot.classList.remove('on'), Math.max(0, 150 - (Date.now() - shownAt))); }
+    document.addEventListener('pointerdown', (e) => {
+      if (e.button > 0) return;
+      const el = e.target.closest && e.target.closest(ANY); if (!el || el.disabled) return;
+      clearTimeout(delay); clearTimeout(offTimer); dot.classList.remove('on');
+      start = { x: e.clientX, y: e.clientY };
+      if (el.closest('#view') && !el.matches(ROUND)) delay = setTimeout(() => { if (start) show(el); }, 70); else show(el);
+    }, { passive: true, capture: true });
+    document.addEventListener('pointermove', (e) => { if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) hide(); }, { passive: true, capture: true });
+    ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, hide, { passive: true, capture: true }));
+    window.addEventListener('scroll', () => { if (start) hide(); }, { passive: true, capture: true });
+  })();
 
   // ---------- Speed check ----------
   // The app times itself on the phone it is running on: how fast the phone draws frames, how long each screen takes

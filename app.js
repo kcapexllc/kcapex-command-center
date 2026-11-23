@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-30';
+  const APP_VERSION = '2026.11.23-31';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -817,9 +817,9 @@
 
   function msgHtml(m, idx, last) {
     if (m.role === 'user' && editIdx === idx) return `<div class="msg user editing"><textarea id="edit-in" rows="3">${esc(m.text)}</textarea><div class="edit-row"><button type="button" class="btn" data-action="edit-cancel">Cancel</button><button type="button" class="btn primary" data-action="edit-send">Send</button></div></div>`;
-    if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>${chatBusy ? '' : `<div class="uacts"><button type="button" data-copy="${idx}" aria-label="Copy">⧉ Copy</button><button type="button" data-edit="${idx}" aria-label="Edit">✎ Edit</button></div>`}`;
+    // Tap your own message to edit it, like the Claude app.
+    if (m.role === 'user') return `<div class="msg user ${chatBusy ? '' : 'tappable'}" ${chatBusy ? '' : `data-edit="${idx}" role="button" tabindex="0" aria-label="Edit this message"`}>${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>${chatBusy ? '' : `<div class="uacts"><button type="button" data-copy="${idx}" aria-label="Copy">⧉ Copy</button><button type="button" data-edit="${idx}" aria-label="Edit">✎ Edit</button></div>`}`;
 
-    if (m.role === 'user') return `<div class="msg user">${m.fileNames && m.fileNames.length ? `<div class="mfiles">${m.fileNames.map((n) => `<span>📎 ${esc(n)}</span>`).join('')}</div>` : ''}${esc(m.text)}</div>`;
     const streaming = last && chatBusy;
     const acts = (m.tools || []).filter((t) => t.write || !(m.steps && m.steps.length)).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     const body = m.text ? md(m.text) : (streaming ? '' : '<p>(no answer)</p>');
@@ -1433,7 +1433,7 @@
     const md0 = e.target.closest('[data-model]'); if (md0) { chatModel = md0.dataset.model; setPref('kc.model', chatModel); render(); return; }
     const ef0 = e.target.closest('[data-effort]'); if (ef0) { chatEffort = ef0.dataset.effort; setPref('kc.effort', chatEffort); render(); return; }
     const uq = e.target.closest('[data-unqueue]'); if (uq) { chatQueue.splice(Number(uq.dataset.unqueue), 1); render(); return; }
-    const ed0 = e.target.closest('[data-edit]'); if (ed0) { if (!chatBusy) { editIdx = Number(ed0.dataset.edit); modelMenu = false; render(); setTimeout(() => { const t = $('#edit-in'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }, 30); } return; }
+    const ed0 = e.target.closest('[data-edit]'); if (ed0) { if (!chatBusy) { editIdx = Number(ed0.dataset.edit); modelMenu = false; render(); setTimeout(() => { const t = $('#edit-in'); if (t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 4, 260) + 'px'; t.focus(); t.setSelectionRange(t.value.length, t.value.length); t.scrollIntoView({ block: 'nearest' }); } }, 30); } return; }
     if (modelMenu && !e.target.closest('.model-sheet, .model-chip')) { modelMenu = false; render(); }
     const cp = e.target.closest('[data-copy]'); if (cp) { const m = curMsgs()[Number(cp.dataset.copy)]; const txt = m ? m.text : ''; navigator.clipboard?.writeText(txt).then(() => toast('Copied'), () => toast('Select and copy manually')); return; }
     const ch = e.target.closest('[data-chat]'); if (ch) { if (!chatBusy) { chatId = ch.dataset.chat; chatProject = (data.chats[chatId] || {}).projectId || null; askFocus = null; showChats = false; projView = null; render(); scrollChat(); } return; }
@@ -1549,7 +1549,7 @@
   // Wait a moment before the tab bar comes back, so a tap on Send isn't caught by the bar sliding in.
   document.addEventListener('focusout', (e) => { if (e.target.id === 'ask-in') setTimeout(() => { if (document.activeElement?.id !== 'ask-in') document.body.classList.remove('kc-typing'); }, 350); });
   document.addEventListener('change', (e) => { if (e.target.id === 'proj-file' && e.target.files.length) { addProjectFiles(projView, [...e.target.files]); e.target.value = ''; return; } if (e.target.id === 'chat-file' && e.target.files.length) { readFiles([...e.target.files]); e.target.value = ''; } });
-  document.addEventListener('input', (e) => { if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
+  document.addEventListener('input', (e) => { if (e.target.id === 'edit-in') { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight + 4, 260) + 'px'; return; } if (e.target.id === 'ask-in') { chatDraft = e.target.value; e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'; return; } if (!e.target.matches('[data-search]')) return; ui.query[e.target.dataset.search] = e.target.value; render(); });
   // Bottom tabs switch the moment your finger touches them, like iPhone's own tab bars, instead of waiting for you
   // to lift it. The click that follows is ignored so the tab isn't switched twice.
   let tabDownAt = 0;
@@ -1926,7 +1926,7 @@
   (() => {
     const dot = document.createElement('div'); dot.className = 'press-dot'; dot.setAttribute('aria-hidden', 'true'); document.body.appendChild(dot);
     const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .mic-btn, .pr-more, .ci-act, .fab, .jump-btn';
-    const ANY = ROUND + ', .tabbar button, .dr-item, .dr-new, .dr-chat, .top-menu button, .chip, .btn, .tile, .card, .pr-open, .pc-row, .chat-item .ci-open, .proj-chip, .kpi[data-go], .deadline[data-open]';
+    const ANY = ROUND + ', .msg.user.tappable, .tabbar button, .dr-item, .dr-new, .dr-chat, .top-menu button, .chip, .btn, .tile, .card, .pr-open, .pc-row, .chat-item .ci-open, .proj-chip, .kpi[data-go], .deadline[data-open]';
     let shownAt = 0, delay = 0, start = null, offTimer = 0;
     function show(el) {
       const r = el.getBoundingClientRect(), cs = getComputedStyle(el);

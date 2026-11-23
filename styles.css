@@ -603,3 +603,7 @@ body.kc-listening .composer { border-color: rgba(220, 38, 38, .5); }
 .qmeta { align-self: flex-end; font-size: 11.5px; color: var(--muted); margin: -4px 4px 4px; display: flex; align-items: center; gap: 6px; }
 .qmeta button { position: relative; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 6px; font-size: 13px; }
 .qmeta button::after { content: ''; position: absolute; inset: -8px; }
+/* Tap your message to edit */
+.msg.user.tappable { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.msg.user.tappable:active { filter: brightness(1.12); }
+.msg.user.editing textarea { min-height: 70px; }

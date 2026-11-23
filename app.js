@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-24';
+  const APP_VERSION = '2026.11.23-25';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1720,6 +1720,46 @@
     else if (a === 'speed') window.kcPerf.run();
     else if (a === 'signout') location.href = '/__logout';
   });
+
+  // ---------- Pull down to refresh ----------
+  // At the top of a screen, pull down: the page and a round indicator follow your finger. Past the line, let go and
+  // the app fetches the latest data and checks for a new version. Off in a chat, where pulling down scrolls messages.
+  (() => {
+    const ind = document.createElement('div'); ind.className = 'ptr'; ind.setAttribute('aria-hidden', 'true');
+    ind.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    document.body.appendChild(ind);
+    const LINE = 72, MAX = 120; let pt = null, busy = false;
+    const topY = () => { const t = document.querySelector('.topbar'); return t ? t.getBoundingClientRect().bottom : 0; };
+    const place = (d) => { const p = Math.min(1, d / LINE), shift = d * 0.55; ind.style.top = topY() + 'px'; ind.style.transform = `translate(-50%, ${shift - 50}px) rotate(${p * 300}deg)`; ind.style.opacity = String(Math.min(1, d / 30)); ind.classList.toggle('ready', d >= LINE); $('#view').style.transform = d ? `translate3d(0,${shift}px,0)` : ''; };
+    const reset = () => { ind.classList.remove('spin', 'ready'); ind.style.transition = 'transform .22s ease-out, opacity .22s'; $('#view').style.transition = 'transform .22s ease-out'; place(0); setTimeout(() => { ind.style.transition = ''; $('#view').style.transition = ''; }, 240); };
+    document.addEventListener('touchstart', (e) => {
+      pt = null;
+      if (busy || e.touches.length !== 1 || window.scrollY > 0 || modal.open || document.body.classList.contains('dr-open') || !$('#top-menu').hidden) return;
+      const t = e.target; if (!t.closest || !t.closest('#view') || t.closest('.chatwrap, input, textarea, select')) return;
+      const p = e.touches[0]; if (p.clientX <= 22) return;
+      pt = { x: p.clientX, y: p.clientY, on: false, d: 0 };
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (!pt) return; const p = e.touches[0], dx = p.clientX - pt.x, dy = p.clientY - pt.y;
+      if (!pt.on) { if (Math.abs(dy) < 6 && Math.abs(dx) < 6) return; if (dy <= 0 || Math.abs(dx) > dy || window.scrollY > 0) { pt = null; return; } pt.on = true; ind.style.transition = 'none'; $('#view').style.transition = 'none'; }
+      e.preventDefault();
+      pt.d = Math.min(MAX, dy * 0.6); place(pt.d);
+    }, { passive: false });
+    document.addEventListener('touchend', async () => {
+      if (!pt || !pt.on) { pt = null; return; } const d = pt.d; pt = null;
+      if (d < LINE) { reset(); return; }
+      busy = true; ind.style.transition = 'transform .18s ease-out'; $('#view').style.transition = 'transform .18s ease-out';
+      place(LINE * 0.8); ind.classList.add('spin');
+      const t0 = Date.now();
+      try {
+        await Promise.all([window.kcPull ? window.kcPull() : null, navigator.serviceWorker?.getRegistration?.().then((r) => r && r.update()).catch(() => {})]);
+      } catch (_) { /* offline: the toast says so */ }
+      await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
+      busy = false; reset(); render();
+      toast(navigator.onLine === false ? 'You’re offline. Showing what’s saved on this phone.' : 'Up to date · ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+    }, { passive: true });
+    document.addEventListener('touchcancel', () => { if (pt && pt.on) reset(); pt = null; }, { passive: true });
+  })();
 
   // ---------- Press highlight (like the Claude app) ----------
   // Touch a button and a soft highlight appears around it: a circle on round icon buttons, a pill behind the icon on

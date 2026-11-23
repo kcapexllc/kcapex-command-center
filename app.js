@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-25';
+  const APP_VERSION = '2026.11.23-26';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -897,6 +897,7 @@
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="attach-btn" data-action="chat-attach" aria-label="Attach files" title="Attach files"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         <textarea id="ask-in" placeholder="Reply to Claude…" rows="1" enterkeyhint="send">${esc(chatDraft)}</textarea>
+        ${chatBusy ? '' : `<button class="mic-btn ${micOn ? 'on' : ''}" id="mic-btn" type="button" data-action="chat-mic" aria-label="${micOn ? 'Stop talking' : 'Talk'}" aria-pressed="${micOn}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`}
         ${chatBusy ? '<button class="send-btn stop" data-action="chat-stop" aria-label="Stop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>' : '<button class="send-btn" data-action="ask" id="ask-btn" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'}</div>
         <div class="attach-help" id="attach-help" hidden><b>iPhone can’t paste PDFs into web apps.</b> Tap <b>＋</b> → <b>Choose Files</b>, tap <b>Select</b> at the top right, check up to 15 files and tap <b>Open</b>. Photos and screenshots can be pasted. <button type="button" data-action="chat-attach">Choose files</button></div>
         <input type="file" id="chat-file" accept="application/pdf,image/*,.docx,.txt,.csv,.md,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple hidden />
@@ -963,6 +964,44 @@
     data.chats = { ...(data.chats || {}), [chatId]: body };
     await saveDoc('chats', chatId, body);
   }
+
+  // ----- Talk instead of type -----
+  // Tap the microphone and speak: each word appears in the message box as it is heard (still-unsure words show
+  // lighter until they settle), the way dictation looks in the Claude app. Tap again to stop, edit if you like, send.
+  let micOn = false, rec = null, recBase = '';
+  function micUI() {
+    const b = $('#mic-btn'), t = $('#ask-in');
+    if (b) { b.classList.toggle('on', micOn); b.setAttribute('aria-pressed', String(micOn)); b.setAttribute('aria-label', micOn ? 'Stop talking' : 'Talk'); }
+    if (t) t.placeholder = micOn ? 'Listening… start talking' : 'Reply to Claude…';
+    document.body.classList.toggle('kc-listening', micOn);
+  }
+  function setDraft(text, unsure) {
+    chatDraft = text; const t = $('#ask-in'); if (!t) return;
+    t.value = text; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 160) + 'px';
+    t.classList.toggle('unsure', !!unsure); t.scrollTop = t.scrollHeight;
+  }
+  function startMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast('Voice typing isn’t available here. Tap the message box and use the 🎙 on your keyboard instead.', 5000); return; }
+    try {
+      rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+      const t = $('#ask-in'); recBase = (t ? t.value : chatDraft).replace(/\s+$/, ''); if (recBase) recBase += ' ';
+      rec.onresult = (e) => {
+        let fin = '', guess = '';
+        for (let i = 0; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else guess += r[0].transcript; }
+        const text = (recBase + fin + guess).replace(/\s+/g, ' ').replace(/^\s/, '');
+        setDraft(text.charAt(0).toUpperCase() + text.slice(1), !!guess);
+      };
+      rec.onerror = (e) => {
+        const why = { 'not-allowed': 'Allow the microphone for this app (iPhone Settings → Safari → Microphone), then try again.', 'service-not-allowed': 'Allow the microphone and Siri & Dictation, then try again.', 'no-speech': 'Didn’t hear anything. Tap the mic and try again.', 'audio-capture': 'No microphone found.', network: 'Voice typing needs an internet connection.' }[e.error];
+        if (why) toast(why, 5000);
+      };
+      rec.onend = () => { micOn = false; rec = null; const t2 = $('#ask-in'); if (t2) t2.classList.remove('unsure'); micUI(); };
+      rec.start(); micOn = true; micUI();
+      const t3 = $('#ask-in'); if (t3) t3.focus({ preventScroll: true });
+    } catch (err) { micOn = false; rec = null; micUI(); toast('Couldn’t start the microphone. Try again.'); }
+  }
+  function stopMic() { if (rec) { try { rec.stop(); } catch (_) { /* already stopped */ } } micOn = false; micUI(); }
 
   // ----- Attachments -----
   // PDFs: long ones with real text go to Claude as text (cheaper, no size limit); scanned or short ones go
@@ -1057,6 +1096,7 @@
 
   async function askClaude(preset, retry) {
     if (chatBusy) return;
+    if (micOn) stopMic();
     const inp = $('#ask-in') || $('#ask-home');
     const q = retry ? '' : (preset || (inp && inp.value) || '').trim();
     if (!retry && !q && !chatFiles.length) return;
@@ -1350,6 +1390,7 @@
     else if (a === 'chat-stop') { if (chatBusy) chatBusy.abort(); }
     else if (a === 'chat-retry') { askClaude('', true); }
     else if (a === 'chat-unfocus') { askFocus = null; render(); }
+    else if (a === 'chat-mic') { if (micOn) stopMic(); else startMic(); }
     else if (a === 'chat-attach') { const f = $('#chat-file'); if (f) f.click(); }
     else if (a === 'ask-bid') {
       const o = data.opportunities[editing.id]; if (!o) return; modal.close();
@@ -1767,7 +1808,7 @@
   // redraws the button underneath. Things inside scrolling lists wait a moment first, so starting a scroll doesn't flash.
   (() => {
     const dot = document.createElement('div'); dot.className = 'press-dot'; dot.setAttribute('aria-hidden', 'true'); document.body.appendChild(dot);
-    const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .pr-more, .ci-act, .fab, .jump-btn';
+    const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .mic-btn, .pr-more, .ci-act, .fab, .jump-btn';
     const ANY = ROUND + ', .tabbar button, .dr-item, .dr-new, .dr-chat, .top-menu button, .chip, .btn, .tile, .card, .pr-open, .pc-row, .chat-item .ci-open, .proj-chip, .kpi[data-go], .deadline[data-open]';
     let shownAt = 0, delay = 0, start = null, offTimer = 0;
     function show(el) {

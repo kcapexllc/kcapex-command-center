@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-22';
+  const APP_VERSION = '2026.11.23-23';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -415,12 +415,20 @@
   }
   // The markup for another screen, without leaving this one (used to draw the next screen beside it during a swipe).
   function htmlFor(v) { const cur = ui.view; ui.view = v; try { return viewHTML(); } finally { ui.view = cur; } }
+  let shownChatKey = null;
   function render() {
     if (pagerFinish) pagerFinish();
     renderChrome(); if (window.kcWarm) window.kcWarm();
     const ae = document.activeElement, keep = ae && ae.dataset && ae.dataset.search ? [ae.dataset.search, ae.selectionStart] : null, keepAsk = ae && ae.id === 'ask-in';
     const el = $('#view');
+    // Redrawing the chat rebuilds its message list: keep your place if you had scrolled up to read, otherwise
+    // (and whenever a different chat opens) start at the newest message.
+    const oldChat = $('#chat'); let keepTop = null;
+    if (oldChat && oldChat.scrollHeight - oldChat.scrollTop - oldChat.clientHeight > 60) keepTop = oldChat.scrollTop;
     el.innerHTML = viewHTML();
+    const newChat = $('#chat');
+    if (newChat) { const key = (chatId || 'new') + '|' + (projView || ''); if (key === shownChatKey && keepTop !== null) newChat.scrollTop = keepTop; else scrollChat(); shownChatKey = key; }
+    else shownChatKey = null;
     if (keepAsk) { const s = $('#ask-in'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
   }
@@ -913,7 +921,9 @@
     };
   }
 
-  function scrollChat() { const c = $('#chat'); if (c) c.scrollTop = c.scrollHeight; }
+  // Chats open at the newest message; scroll up for earlier ones. Runs again after the next frame and shortly after,
+  // once fonts and long answers have finished laying out, so it really lands at the bottom.
+  function scrollChat() { const c = $('#chat'); if (!c) return; const end = () => { c.scrollTop = c.scrollHeight; }; end(); requestAnimationFrame(end); setTimeout(end, 120); }
   let liveRaf = 0;
   // Smooth reveal, like the Claude app: text arrives in bursts from the server, but the screen eases it in a
   // few characters per frame, catching up faster when it falls behind.

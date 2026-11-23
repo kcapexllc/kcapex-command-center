@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-20';
+  const APP_VERSION = '2026.11.23-21';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;

@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-23';
+  const APP_VERSION = '2026.11.23-24';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -427,7 +427,7 @@
     if (oldChat && oldChat.scrollHeight - oldChat.scrollTop - oldChat.clientHeight > 60) keepTop = oldChat.scrollTop;
     el.innerHTML = viewHTML();
     const newChat = $('#chat');
-    if (newChat) { const key = (chatId || 'new') + '|' + (projView || ''); if (key === shownChatKey && keepTop !== null) newChat.scrollTop = keepTop; else scrollChat(); shownChatKey = key; }
+    if (newChat) { const key = (chatId || 'new') + '|' + (projView || ''); if (key === shownChatKey && keepTop !== null) { newChat.scrollTop = keepTop; updateJump(); } else scrollChat(); shownChatKey = key; }
     else shownChatKey = null;
     if (keepAsk) { const s = $('#ask-in'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
     if (keep) { const s = $(`[data-search="${keep[0]}"]`); if (s) { s.focus(); try { s.setSelectionRange(keep[1], keep[1]); } catch (e) { /* ignore */ } } }
@@ -892,7 +892,8 @@
     const focus = askFocus ? `<div class="focus-chip">Talking about bid <b>${esc(askFocus.sol || askFocus.title || '')}</b> <button data-action="chat-unfocus" aria-label="Stop focusing on this bid">✕</button></div>` : '';
     const files = chatFiles.length ? `<div class="cfiles-n">${chatFiles.length} of ${MAX_FILES} files</div><div class="cfiles">${chatFiles.map((f, i) => `<span class="cfile">${f.pending ? '⏳' : f.type === 'image/jpeg' ? '🖼' : '📄'} ${esc(f.name)}${f.pending ? ' <em>reading…</em>' : f.label ? ` <em>${esc(f.label)}</em>` : ''} <button data-file-x="${i}" aria-label="Remove">✕</button></span>`).join('')}</div>` : '';
     return `<div class="chatwrap">${head}${listHtml}
-      <div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
+      <div class="chatbox"><div class="chat" id="chat">${msgs.length ? msgs.map((m, i) => msgHtml(m, i, i === msgs.length - 1)).join('') : empty}</div>
+      <button class="jump-btn" id="jump-btn" type="button" aria-label="Jump to the newest message" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5.5 12.5 12 19l6.5-6.5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
       <div class="composer">${focus}${files}
         <div class="ask-row"><button class="attach-btn" data-action="chat-attach" aria-label="Attach files" title="Attach files"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         <textarea id="ask-in" placeholder="Reply to Claude…" rows="1" enterkeyhint="send">${esc(chatDraft)}</textarea>
@@ -923,7 +924,11 @@
 
   // Chats open at the newest message; scroll up for earlier ones. Runs again after the next frame and shortly after,
   // once fonts and long answers have finished laying out, so it really lands at the bottom.
-  function scrollChat() { const c = $('#chat'); if (!c) return; const end = () => { c.scrollTop = c.scrollHeight; }; end(); requestAnimationFrame(end); setTimeout(end, 120); }
+  function scrollChat() { const c = $('#chat'); if (!c) return; const end = () => { c.scrollTop = c.scrollHeight; updateJump(); }; end(); requestAnimationFrame(end); setTimeout(end, 120); }
+  // The round ↓ button: shows whenever you've scrolled up in a chat; one tap glides to the newest message.
+  function updateJump() { const c = $('#chat'), b = $('#jump-btn'); if (!c || !b) return; const up = c.scrollHeight - c.scrollTop - c.clientHeight > 120; if (b.hidden === up) { b.hidden = !up; } }
+  document.addEventListener('scroll', (e) => { if (e.target && e.target.id === 'chat') updateJump(); }, { passive: true, capture: true });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#jump-btn')) return; const c = $('#chat'); if (!c) return; const end = c.scrollHeight - c.clientHeight; if (end - c.scrollTop > 700) c.scrollTop = end - 500; requestAnimationFrame(() => c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' })); });
   let liveRaf = 0;
   // Smooth reveal, like the Claude app: text arrives in bursts from the server, but the screen eases it in a
   // few characters per frame, catching up faster when it falls behind.
@@ -943,7 +948,7 @@
     const acts = (m.tools || []).map((t) => `<div class="act ${t.write ? 'write' : ''}">${t.write ? '✓' : '•'} ${esc(t.d)}</div>`).join('');
     let a = el.querySelector('.acts'); if (acts) { if (!a) { a = document.createElement('div'); a.className = 'acts'; el.prepend(a); } a.innerHTML = acts; }
     const st = $('#live-status'); if (st) st.textContent = chatStatus || 'Thinking…';
-    if (atBottom) scrollChat();
+    if (atBottom) scrollChat(); else updateJump();
     if (shownLen < target.length) liveRaf = requestAnimationFrame(revealStep);
   }
   const revealDone = (reply) => new Promise((res) => { const t0 = Date.now(); (function wait() { if (shownLen >= (reply.text || '').length || Date.now() - t0 > 2500 || ui.view !== 'ask') return res(); paintLive(); setTimeout(wait, 50); })(); });
@@ -1722,7 +1727,7 @@
   // redraws the button underneath. Things inside scrolling lists wait a moment first, so starting a scroll doesn't flash.
   (() => {
     const dot = document.createElement('div'); dot.className = 'press-dot'; dot.setAttribute('aria-hidden', 'true'); document.body.appendChild(dot);
-    const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .pr-more, .ci-act, .fab';
+    const ROUND = '.icon-btn, .menu-btn, .send-btn, .attach-btn, .pr-more, .ci-act, .fab, .jump-btn';
     const ANY = ROUND + ', .tabbar button, .dr-item, .dr-new, .dr-chat, .top-menu button, .chip, .btn, .tile, .card, .pr-open, .pc-row, .chat-item .ci-open, .proj-chip, .kpi[data-go], .deadline[data-open]';
     let shownAt = 0, delay = 0, start = null, offTimer = 0;
     function show(el) {

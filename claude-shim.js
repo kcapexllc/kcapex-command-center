@@ -70,7 +70,8 @@
         return fetch('/api/db?c=' + stale.join(','), { credentials: 'same-origin', cache: 'no-store' })
           .then(onAuthLost).then(function (r) { return r.json(); })
           .then(function (k) {
-            stale.forEach(function (c) { cache[c] = (k.collections || {})[c] || {}; revs[c] = (k.revs || {})[c]; });
+            // A save may have started while this was loading: keep it on screen; the next pull picks the collection up.
+            stale.forEach(function (c) { if (pending[c]) return; cache[c] = (k.collections || {})[c] || {}; revs[c] = (k.revs || {})[c]; });
             loaded = true; persist(); notify(false);
           });
       })
@@ -93,7 +94,8 @@
       }).then(onAuthLost).then(function (r) {
         return r.json().then(function (j) {
           if (!r.ok) { var e = new Error(j.error || ('HTTP ' + r.status)); e.code = 'unavailable'; throw e; }
-          if (j.rev) revs[op.path.split('/')[0]] = j.rev;
+          // Don't adopt the new rev: another device or Claude may have written to this collection since our last
+          // pull, and taking the rev would hide that change. The next pull re-reads the collection instead.
           return j;
         });
       });

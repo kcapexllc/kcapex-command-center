@@ -16,6 +16,8 @@ export default async (req) => {
   const flush = () => { timer = null; state.updated = Date.now(); const snap = JSON.stringify(state); writing = writing.then(() => jobs.set(id, snap)).catch(() => {}); return writing; };
   const later = () => { if (!timer) timer = setTimeout(flush, 250); };
   await flush();
+  // Stop in the app writes "<job id>-cancel"; runChat checks it before each turn and each change to the app.
+  const isCancelled = async () => !!(await jobs.get(id + "-cancel").catch(() => null));
   await runChat(body, (ev) => {
     if (ev.t === "text") state.text += ev.d;
     else if (ev.t === "think") state.think += ev.d;
@@ -24,7 +26,7 @@ export default async (req) => {
     else if (ev.t === "error") state.error = ev.d;
     else if (ev.t === "done") state.done = true;
     later();
-  });
+  }, Infinity, isCancelled);
   if (timer) clearTimeout(timer);
   await flush();
 };

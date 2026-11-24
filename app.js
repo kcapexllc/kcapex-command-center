@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.24-1';
+  const APP_VERSION = '2026.11.24-2';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1007,15 +1007,15 @@
   }
   const revealDone = (reply) => new Promise((res) => { const t0 = Date.now(); (function wait() { if (shownLen >= (reply.text || '').length || Date.now() - t0 > 2500 || ui.view !== 'ask') return res(); paintLive(); setTimeout(wait, 50); })(); });
 
-  async function saveChat(msgs) {
-    if (!chatId) return;
-    const prev = (data.chats || {})[chatId] || {};
+  async function saveChat(msgs, id = chatId, proj = chatProject) {
+    if (!id) return;
+    const prev = (data.chats || {})[id] || {};
     const firstQ = (msgs.find((m) => m.role === 'user') || {}).text || 'New chat';
     const clean = msgs.map((m) => ({ role: m.role, text: m.text || '', ...(m.fileNames ? { fileNames: m.fileNames } : {}), ...(m.fileRefs ? { fileRefs: m.fileRefs } : {}), ...(m.tools ? { tools: m.tools } : {}), ...(m.error ? { error: m.error } : {}), ...(m.think ? { think: m.think.slice(0, 20000), thinkMs: m.thinkMs || 0 } : {}), ...(m.steps && m.steps.length ? { steps: m.steps.slice(0, 40) } : {}), ...(m.model ? { model: m.model, effort: m.effort } : {}) })).slice(-60);
-    const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean, ...(prev.projectId || chatProject ? { projectId: prev.projectId || chatProject } : {}) };
+    const body = { ...prev, title: prev.title || firstQ.replace(/\s+/g, ' ').slice(0, 60), messages: clean, ...(prev.projectId || proj ? { projectId: prev.projectId || proj } : {}) };
 
-    data.chats = { ...(data.chats || {}), [chatId]: body };
-    await saveDoc('chats', chatId, body);
+    data.chats = { ...(data.chats || {}), [id]: body };
+    await saveDoc('chats', id, body);
   }
 
   // ----- Talk instead of type -----
@@ -1089,7 +1089,7 @@
   // ----- Attachments -----
   // PDFs: long ones with real text go to Claude as text (cheaper, no size limit); scanned or short ones go
   // as the PDF itself so Claude can see the pages. Word files go as text. Photos are shrunk to 1600px.
-  // Everything uploads in 3 MB pieces first, so phone-sized requests never hit the function limit.
+  // Everything uploads in 4 MB pieces first, so phone-sized requests never hit the function limit.
   // Up to 15 files per message. The size caps (20 MB of PDFs/photos, about 450,000 characters of text) keep
   // each request inside what Claude reads in one go, so answers stay fast.
   const MAX_FILES = 15, NATIVE_MAX = 20 * 1024 * 1024, TEXT_MAX = 450000, PIECE = 4000000;
@@ -1197,6 +1197,8 @@
     projView = null;
     if (ui.view !== 'ask') { showChats = false; go('ask'); }
     if (!chatId) chatId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    // The chat this answer belongs to: the person may open another chat or start a new one while it streams.
+    const cid = chatId, cproj = chatProject;
     let msgs = [...curMsgs()];
     if (chatFiles.some((f) => f.pending)) { toast('Still reading your file. One moment.'); return; }
     const files = retry ? [] : chatFiles;
@@ -1256,8 +1258,8 @@
       }
       // Long path: run in the background (no time limit) and check progress twice a second.
       async function background(msgsToSend, keepText) {
-        const base = keepText ? reply.text : '', baseTools = keepText ? [...reply.tools] : [];
-        const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+        const base = keepText ? reply.text : '', baseTools = keepText ? [...reply.tools] : [], baseThink = keepText ? reply.think || '' : '';
+        const jobId = 'j' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); ctrl.jobId = jobId;
         const st = await fetch('/.netlify/functions/chat-background', { method: 'POST', credentials: 'same-origin', signal: ctrl.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, messages: msgsToSend, snapshot: snapshot(), project, model: chatModel, effort: chatEffort }) });
         if (st.status === 401) { location.replace('/?fresh=' + Date.now()); throw new Error('Signed out'); }
         if (!st.ok) throw new Error(`Claude could not start (error ${st.status}).`);
@@ -1270,7 +1272,7 @@
           if (j.pending) { if (Date.now() - lastChange > 60000) throw new Error('Claude did not start. Try again.'); continue; }
           if (j.updated !== lastUpdated) { lastUpdated = j.updated; lastChange = Date.now(); }
           else if (Date.now() - lastChange > 120000) throw new Error('Claude stopped responding. Try again.');
-          if (j.think) { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = (keepText ? reply.think || '' : '') + j.think; }
+          if (j.think) { if (!reply.thinkAt) reply.thinkAt = Date.now(); reply.think = baseThink + j.think; }
           if (j.text && reply.thinkAt && !reply.thinkMs) reply.thinkMs = Date.now() - reply.thinkAt;
           reply.text = base + (j.text || ''); reply.tools = [...baseTools, ...(j.tools || [])];
           if (j.status && !/^(Thinking|Writing)/.test(j.status)) addStep(reply, j.status.replace(/…$/, ''), stepKind(j.status), true);
@@ -1289,7 +1291,10 @@
         if (r1.more && !reply.error) {
           // Ran past the time limit: carry on in the background from where it stopped.
           chatStatus = 'Still working…'; paintLive();
-          if (reply.text) await background([...send, { role: 'assistant', text: reply.text }, { role: 'user', text: '[continue]' }], true);
+          // Changes Claude already made must not be made twice: carry them into the continuation instead of starting over.
+          const doneWrites = reply.tools.filter((t) => t.write).map((t) => t.d);
+          const cont = '[continue]' + (doneWrites.length ? `\n(Already done in the app before the time limit; do not do these again: ${doneWrites.join('; ')}.)` : '');
+          if (reply.text || doneWrites.length) await background([...send, { role: 'assistant', text: reply.text || '(Working on it.)' }, { role: 'user', text: cont }], true);
           else { reply.tools = []; await background(send); }
         } else if (!r1.done && !reply.error) reply.error = 'The answer was cut off. Ask Claude to continue.';
       }
@@ -1299,7 +1304,7 @@
     }
     if (!reply.tools.length) delete reply.tools;
     chatBusy = null; chatStatus = '';
-    await saveChat(msgs);
+    await saveChat(msgs, cid, cproj);
     live.msgs = null;
     if (wrote) { toast('Claude updated your command center'); if (window.kcPull) window.kcPull(); }
     if (ui.view === 'ask') { render(); scrollChat(); }
@@ -1500,7 +1505,7 @@
       openProject(folderId(id));
     }
     else if (a === 'chat-list') { showChats = !showChats; render(); }
-    else if (a === 'chat-stop') { if (chatBusy) chatBusy.abort(); }
+    else if (a === 'chat-stop') { if (chatBusy) { const jid = chatBusy.jobId; if (jid) fetch('/api/job?id=' + jid + '&cancel=1', { method: 'POST', credentials: 'same-origin' }).catch(() => {}); chatBusy.abort(); } }
     else if (a === 'chat-retry') { askClaude('', true); }
     else if (a === 'chat-unfocus') { askFocus = null; render(); }
     else if (a === 'model-menu') { modelMenu = !modelMenu; render(); }
@@ -1602,8 +1607,8 @@
     if (!g && !c && !a) return;
     closeDrawer();
     if (g) { projView = null; go(g.dataset.drGo); }
-    else if (c) { chatId = c.dataset.drChat; chatProject = (data.chats[chatId] || {}).projectId || null; askFocus = null; showChats = false; projView = null; go('ask'); scrollChat(); }
-    else if (a.dataset.drAct === 'new-chat') { chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); setTimeout(() => { const i = $('#ask-in'); if (i) i.focus(); }, 280); }
+    else if (c) { if (chatBusy) { toast('Claude is still answering. Wait for it or tap Stop, then switch chats.'); return; } chatId = c.dataset.drChat; chatProject = (data.chats[chatId] || {}).projectId || null; askFocus = null; showChats = false; projView = null; go('ask'); scrollChat(); }
+    else if (a.dataset.drAct === 'new-chat') { if (chatBusy) { toast('Claude is still answering. Wait for it or tap Stop first.'); return; } chatQueue = []; chatId = null; chatProject = null; askFocus = null; chatFiles = []; projView = null; showChats = false; go('ask'); setTimeout(() => { const i = $('#ask-in'); if (i) i.focus(); }, 280); }
     else if (a.dataset.drAct === 'folders') { projView = 'list'; go('ask'); }
   });
   // ---------- Spring settle ----------

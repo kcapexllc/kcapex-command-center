@@ -33,7 +33,7 @@ Help the owners the way you would in the Claude app: answer questions, think thr
 You have the app's data. A snapshot comes in the first message; use app_search for anything more detailed or not in the snapshot. Name solicitation numbers, dates and dollar amounts. If the data does not hold an answer, say so instead of guessing.
 You can change records in the app with the write tools. Only make a change when the person asked for it or clearly agreed to it, and say plainly what you changed. Changes to bids, tasks, contacts, subs and past performance also reach the owners' Pipeline in Claude at the next twice-daily sync. You cannot send email or submit bids: draft them for the person to send.
 Email drafts use the KCAPEX house style: short and factual, solicitation or contract number in the subject, ask for confirmation of receipt where it fits, no marketing language, signed Kobe Williams, Co-Owner/Managing Director, KCAPEX LLC, 219-333-6902, kcapexllc@gmail.com. Output "Subject: ..." then the body.
-If the newest message is exactly "[continue]", your previous answer was stopped by a time limit, possibly mid-sentence: carry on from the exact point it stopped, with no preamble and no repetition.
+If the newest message starts with "[continue]", your previous answer was stopped by a time limit, possibly mid-sentence: carry on from the exact point it stopped, with no preamble and no repetition. Any changes it lists as already done were made: do not make them again.
 Attached files stay with the conversation. When working from a solicitation package, be specific: cite the document and page or section, and pull out due dates and times, submission method and address, questions deadline, site visit, set-aside and NAICS, period of performance, CLINs and the price breakout, wage determination rates that drive labor cost, evaluation basis, required forms and past performance requirements, and anything that would stop KCAPEX from bidding. Long PDFs and Word files arrive as extracted text, so tables may be flattened: read them carefully and say when a value is uncertain.
 Format answers in Markdown that reads well on a phone: short paragraphs and lists, tables only when they truly help.`;
 
@@ -228,7 +228,8 @@ async function toApiMessages(history, snapshot, uploads, project) {
 
 // Runs one Claude answer. send() receives events: text, status, tool, error, cont, done.
 // deadline: stop cleanly at this time (ms epoch) and send "cont"; background runs pass Infinity.
-export async function runChat(body, send, deadline = Infinity) {
+// isCancelled (optional): checked before each turn and before each change to the app, so Stop really stops.
+export async function runChat(body, send, deadline = Infinity, isCancelled = null) {
   const history = (Array.isArray(body && body.messages) ? body.messages : []).filter((m) => m && (m.role === "user" || m.role === "assistant")).slice(-30);
   // KC_ANTHROPIC_KEY is the owners' own Anthropic key: billed by Anthropic directly instead of Netlify credits.
   const ownKey = process.env.KC_ANTHROPIC_KEY, gwKey = process.env.NETLIFY_AI_GATEWAY_KEY, gwUrl = process.env.NETLIFY_AI_GATEWAY_URL;
@@ -245,6 +246,7 @@ export async function runChat(body, send, deadline = Infinity) {
     send({ t: "status", d: history.some((m) => (m.fileRefs || []).length) || (body.project && (body.project.fileRefs || []).length) ? "Reading your files…" : "Thinking…" });
     const messages = await toApiMessages(history, body.snapshot, getStore({ name: "uploads", consistency: "strong" }), body.project);
     for (let turn = 0; turn < MAX_TURNS; turn++) {
+      if (isCancelled && (await isCancelled())) { send({ t: "error", d: "Stopped." }); return; }
       if (deadline - Date.now() < 2500) { send({ t: "cont" }); return; }
       // Refusal fallbacks are not used here: Netlify's AI Gateway does not pass beta headers through.
       // Thinking is always on for these models (adaptive); the summary streams so the app can show it, like Claude's
@@ -271,6 +273,7 @@ export async function runChat(body, send, deadline = Infinity) {
       messages.push({ role: "assistant", content: msg.content });
       const results = [];
       for (const u of uses) {
+        if (u.name !== "app_search" && isCancelled && (await isCancelled())) { send({ t: "error", d: "Stopped before making that change." }); return; }
         send({ t: "status", d: u.name === "app_search" ? "Looking through your records…" : "Updating your command center…" });
         const [text, summary] = await runTool(store, u.name, u.input).catch((e) => [JSON.stringify({ error: String(e.message || e) }), null]);
         if (summary) send({ t: "tool", d: summary, write: u.name !== "app_search" });

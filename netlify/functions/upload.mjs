@@ -5,7 +5,7 @@ import { getStore } from "@netlify/blobs";
 import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
 
 const TYPES = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/plain)$/;
-const MAX_PARTS = 12; // 12 pieces of up to 3 MB: 36 MB, above what Claude accepts in one request anyway
+const MAX_PARTS = 12; // 12 pieces of up to 4 MB (the app's PIECE): 48 MB, above what Claude accepts in one request anyway
 
 function authorized(req) {
   const pw = process.env.APP_PASSWORD;

@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.23-31';
+  const APP_VERSION = '2026.11.24-1';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -1325,7 +1325,7 @@
         <ol class="install-steps"><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>.</li><li><b>Android:</b> Chrome → ⋮ → <b>Install app</b>.</li></ol></div>
       <div class="panel settings" style="margin-bottom:14px"><h2>Sync</h2><p>Bids, New, Quick-turn, People, Subs and Library sync with your KCAPEX Pipeline in Claude on a schedule. Leads, Jobs, Contracts, Invoices and Inbox live in this app and are shared across your devices.</p>
         <p>${syncLine(true)}</p>
-        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><button class="btn" data-action="reload">Get the latest version</button><button class="btn" data-action="speed">Speed check</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div>
+        <div class="btn-row"><button class="btn" data-action="export">Export backup</button><button class="btn" data-action="reload">Get the latest version</button><button class="btn" data-action="speed">Speed check</button><button class="btn" data-action="backdrop">${window.kcBackdropOn === false ? 'Turn backdrop on' : 'Turn backdrop off'}</button><a class="btn" href="/__logout" style="text-decoration:none">Sign out</a></div>
         <p style="color:var(--muted);font-size:12px;margin-top:10px">App version ${APP_VERSION}</p></div>${window.kcPerf ? window.kcPerf.panel() : ''}`;
   }
 
@@ -1521,6 +1521,7 @@
     else if (a === 'export') exportData();
     else if (a === 'speed') window.kcPerf.run();
     else if (a === 'speed-copy') window.kcPerf.copy();
+    else if (a === 'backdrop') { backdrop.set(!backdrop.on); window.kcBackdropOn = backdrop.on; toast(backdrop.on ? 'KCAPEX backdrop on' : 'Backdrop off'); render(); }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('.card[data-open]')) e.target.click(); });
   // Paste a screenshot, photo or PDF straight into the message box (or drop files on the chat on a computer).
@@ -1852,7 +1853,7 @@
     else if (ui.view === 'ask' && cur && !projView) out.push(it('chat-rename', '✎ Rename chat'), it('chat-move', '📁 Move to a bid folder'), it('chat-copy', '⧉ Copy whole chat'), it('chat-del', '🗑 Delete chat', true));
     else if (COLLECTIONS[ui.view]) out.push(it('add', `＋ Add ${COLLECTIONS[ui.view].label.replace(/s$/, '').toLowerCase()}`));
     if (out.length) out.push('<hr>');
-    out.push(it('new-chat', '✦ New chat'), it('folders', '📁 Bid folders'), it('opps', '☷ Opportunities and more'), it('latest', '↻ Get the latest version'), it('speed', '⚡ Speed check'), it('export', '⤓ Export backup'), it('signout', 'Sign out'));
+    out.push(it('new-chat', '✦ New chat'), it('folders', '📁 Bid folders'), it('opps', '☷ Opportunities and more'), it('latest', '↻ Get the latest version'), it('speed', '⚡ Speed check'), it('backdrop', backdrop.on ? '🌆 Backdrop: on' : '🌆 Backdrop: off'), it('export', '⤓ Export backup'), it('signout', 'Sign out'));
     return out.join('');
   }
   function openTopMenu() { topMenu.innerHTML = topMenuItems(); topMenu.hidden = false; topBack.hidden = false; requestAnimationFrame(() => topMenu.classList.add('show')); }
@@ -1876,6 +1877,7 @@
     else if (a === 'latest') { const r = document.createElement('button'); r.dataset.action = 'reload'; r.hidden = true; document.body.appendChild(r); r.click(); r.remove(); }
     else if (a === 'export') exportData();
     else if (a === 'speed') window.kcPerf.run();
+    else if (a === 'backdrop') { backdrop.set(!backdrop.on); window.kcBackdropOn = backdrop.on; toast(backdrop.on ? 'KCAPEX backdrop on' : 'Backdrop off'); render(); }
     else if (a === 'signout') location.href = '/__logout';
   });
 
@@ -1949,6 +1951,60 @@
     ['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, hide, { passive: true, capture: true }));
     window.addEventListener('scroll', () => { if (start) hide(); }, { passive: true, capture: true });
   })();
+
+  // ---------- KCAPEX theme backdrop: "Skyline at Dusk" ----------
+  // A purple dusk sky behind the app: a slow aurora, gold sparks rising like the arrow in the KCAPEX mark, and a
+  // government-city skyline with a capitol dome. The skyline's windows light up as FY27 invoicing moves toward the
+  // $2M goal, so the city glows brighter the more you bill.
+  // Speed: the sky and skyline are drawn once (again only when the size or the lit windows change); the aurora and
+  // sparks are layers the phone's graphics chip slides around, so scrolling and swiping pay nothing for them.
+  // Reduced motion keeps it still. Toggle: ⋯ menu or Settings.
+  const backdrop = (() => {
+    const root = document.createElement('div'); root.id = 'kc-backdrop'; root.setAttribute('aria-hidden', 'true');
+    root.innerHTML = '<canvas></canvas><div class="aur a1"></div><div class="aur a2"></div>' + Array.from({ length: 14 }, (_, i) => `<i class="spark" style="left:${(i * 53 + 7) % 100}%;animation-delay:-${(i * 2.3) % 22}s;animation-duration:${16 + (i * 7) % 12}s;--sx:${((i % 5) - 2) * 9}px;--ss:${0.7 + (i % 4) * 0.25}"></i>`).join('');
+    document.body.prepend(root);
+    const cv = root.querySelector('canvas'), ctx = cv.getContext('2d');
+    let on = pref('kc.backdrop', 'on') === 'on', lit = -1, size = '';
+    function goal() {
+      try { const inv = list('invoices').filter((i) => i.status !== 'Draft' && dayOf(i.sent) >= FY_START && dayOf(i.sent) <= FY_END).reduce((a, i) => a + (Number(i.amount) || 0), 0); return Math.max(0, Math.min(1, inv / GOALS.revenue)); } catch (_) { return 0; }
+    }
+    const dark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+    function paint(force) {
+      const W = innerWidth, H = innerHeight, dk = dark(), g = goal(), key = W + 'x' + H + (dk ? 'd' : 'l');
+      if (!force && key === size && Math.abs(g - lit) < 0.005) return;
+      size = key; lit = g;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      if (dk) { sky.addColorStop(0, '#0d0618'); sky.addColorStop(0.55, '#1f0b3a'); sky.addColorStop(1, '#3b0764'); }
+      else { sky.addColorStop(0, 'rgba(247,245,251,0)'); sky.addColorStop(0.6, 'rgba(221,206,250,.35)'); sky.addColorStop(1, 'rgba(167,139,250,.45)'); }
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      // The same skyline every time (seeded), with a capitol dome in the middle.
+      let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      const maxH = Math.min(150, H * 0.18), bldgs = [], wins = []; let x = -10;
+      while (x < W + 10) { const w = 22 + rnd() * 34, h = 40 + rnd() * maxH; bldgs.push({ x, w, h }); x += w + 3 + rnd() * 6; }
+      ctx.fillStyle = dk ? '#12081f' : 'rgba(76,29,149,.16)';
+      bldgs.forEach((b) => { ctx.fillRect(b.x, H - b.h, b.w, b.h); for (let wy = H - b.h + 8; wy < H - 10; wy += 9) for (let wx = b.x + 5; wx < b.x + b.w - 6; wx += 8) wins.push({ x: wx, y: wy, r: rnd() }); });
+      const r = Math.min(46, W * 0.09), dy = H - maxH - 10;
+      ctx.beginPath(); ctx.arc(W / 2, dy + r * 0.2, r, Math.PI, 0); ctx.fill();
+      ctx.fillRect(W / 2 - r * 1.25, dy + r * 0.2, r * 2.5, H - dy); ctx.fillRect(W / 2 - 2, dy - r * 0.95, 4, r * 0.3);
+      // Lit windows: 4% always, the rest in step with FY27 invoicing.
+      wins.sort((a, b) => a.r - b.r);
+      const n = Math.round(wins.length * (0.04 + 0.96 * g));
+      for (let i = 0; i < n; i++) { const w = wins[i]; ctx.fillStyle = dk ? `rgba(250,204,21,${0.4 + 0.25 * w.r})` : `rgba(202,138,4,${0.22 + 0.15 * w.r})`; ctx.fillRect(w.x, w.y, 3, 4); }
+    }
+    function start() { root.hidden = !on; document.body.classList.toggle('kc-has-backdrop', on); if (on) paint(); }
+    let rz = 0; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => on && paint(), 150); });
+    matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => on && paint(true));
+    return {
+      start, refresh() { if (on) paint(); },
+      set(v) { on = v; setPref('kc.backdrop', v ? 'on' : 'off'); start(); },
+      get on() { return on; }, get lit() { return lit; },
+    };
+  })();
+  window.kcBackdropOn = backdrop.on; backdrop.start();
+
 
   // ---------- Speed check ----------
   // The app times itself on the phone it is running on: how fast the phone draws frames, how long each screen takes
@@ -2049,7 +2105,7 @@
     db = d;
     DBC.forEach((c) => d.collection(c).onSnapshot((snap) => {
       const m = {}; snap.docs.forEach((s) => { const b = s.data(); if (b && !b.deleted) m[s.id] = b; });
-      data[c] = m; dataRev++; loadedColls.add(c); if (c === 'projects' || c === 'opportunities' || c === 'chats') setTimeout(numberFolders, 500); $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
+      data[c] = m; dataRev++; if (c === 'invoices' && typeof backdrop !== 'undefined') backdrop.refresh(); loadedColls.add(c); if (c === 'projects' || c === 'opportunities' || c === 'chats') setTimeout(numberFolders, 500); $('#sync').textContent = syncLine(false); if (!(ui.view === 'ask' && (c !== 'chats' || chatBusy))) scheduleRender();
     }, () => { $('#sync').textContent = 'Offline'; }));
   });
   window.addEventListener('kc-meta', () => { $('#sync').textContent = syncLine(false); });

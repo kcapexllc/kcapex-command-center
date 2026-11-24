@@ -607,3 +607,25 @@ body.kc-listening .composer { border-color: rgba(220, 38, 38, .5); }
 .msg.user.tappable { cursor: pointer; -webkit-user-select: none; user-select: none; }
 .msg.user.tappable:active { filter: brightness(1.12); }
 .msg.user.editing textarea { min-height: 70px; }
+
+/* KCAPEX theme backdrop ("Skyline at Dusk"): drawn behind the app, never over it. Only transforms and opacity
+   animate, so the phone's graphics chip moves the layers without redrawing anything. */
+#kc-backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; contain: strict; }
+#kc-backdrop[hidden] { display: none; }
+#kc-backdrop canvas { position: absolute; inset: 0; }
+#kc-backdrop .aur { position: absolute; width: 90vmax; height: 90vmax; border-radius: 50%; will-change: transform; }
+#kc-backdrop .a1 { left: -30vmax; top: -35vmax; background: radial-gradient(closest-side, rgba(124,58,237,.14), rgba(124,58,237,0)); animation: kcAur1 38s ease-in-out infinite alternate; }
+#kc-backdrop .a2 { right: -35vmax; top: -20vmax; background: radial-gradient(closest-side, rgba(192,38,211,.11), rgba(192,38,211,0)); animation: kcAur2 46s ease-in-out infinite alternate; }
+@keyframes kcAur1 { to { transform: translate3d(28vw, 10vh, 0) scale(1.15); } }
+@keyframes kcAur2 { to { transform: translate3d(-24vw, 14vh, 0) scale(.9); } }
+#kc-backdrop .spark { position: absolute; bottom: -12px; width: 0; height: 0; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 6px solid rgba(162,28,175,.45);
+  will-change: transform, opacity; animation: kcSpark 20s linear infinite; opacity: 0; }
+@keyframes kcSpark { 0% { transform: translate3d(0, 0, 0) scale(var(--ss)); opacity: 0; } 10% { opacity: .9; } 85% { opacity: .7; } 100% { transform: translate3d(var(--sx), -105vh, 0) scale(var(--ss)); opacity: 0; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #kc-backdrop .a1 { background: radial-gradient(closest-side, rgba(124,58,237,.32), rgba(124,58,237,0)); }
+  :root:not([data-theme="light"]) #kc-backdrop .a2 { background: radial-gradient(closest-side, rgba(192,38,211,.24), rgba(192,38,211,0)); }
+  :root:not([data-theme="light"]) #kc-backdrop .spark { border-bottom-color: rgba(240,171,252,.7); } }
+:root[data-theme="dark"] #kc-backdrop .a1 { background: radial-gradient(closest-side, rgba(124,58,237,.32), rgba(124,58,237,0)); }
+:root[data-theme="dark"] #kc-backdrop .spark { border-bottom-color: rgba(240,171,252,.7); }
+@media (prefers-reduced-motion: reduce) { #kc-backdrop .aur, #kc-backdrop .spark { animation: none; } #kc-backdrop .spark { display: none; } }
+body.kc-has-backdrop .shell { position: relative; z-index: 1; }
+body.kc-has-backdrop .tabbar, body.kc-has-backdrop .fab { z-index: 12; }

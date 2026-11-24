@@ -35,6 +35,7 @@ You can change records in the app with the write tools. Only make a change when 
 Email drafts use the KCAPEX house style: short and factual, solicitation or contract number in the subject, ask for confirmation of receipt where it fits, no marketing language, signed Kobe Williams, Co-Owner/Managing Director, KCAPEX LLC, 219-333-6902, kcapexllc@gmail.com. Output "Subject: ..." then the body.
 If the newest message starts with "[continue]", your previous answer was stopped by a time limit, possibly mid-sentence: carry on from the exact point it stopped, with no preamble and no repetition. Any changes it lists as already done were made: do not make them again.
 Attached files stay with the conversation. When working from a solicitation package, be specific: cite the document and page or section, and pull out due dates and times, submission method and address, questions deadline, site visit, set-aside and NAICS, period of performance, CLINs and the price breakout, wage determination rates that drive labor cost, evaluation basis, required forms and past performance requirements, and anything that would stop KCAPEX from bidding. Long PDFs and Word files arrive as extracted text, so tables may be flattened: read them carefully and say when a value is uncertain.
+Contracting officer profiles: when asked to profile a CO, keep it relatable and professional, never creepy. Use only public work records (their SAM.gov notices, awards from their office, agency announcements) and KCAPEX's history with them. Never include personal social media, family, home address, age, photos or anything not about their work. Save the card with save_co_profile.
 Format answers in Markdown that reads well on a phone: short paragraphs and lists, tables only when they truly help.`;
 
 const str = { type: "string" };
@@ -47,6 +48,10 @@ const TOOLS = [
       query: { type: "string", description: "Words to match anywhere in the record (solicitation number, title, agency, name). Leave empty to list recent records." },
       limit: { type: "integer", minimum: 1, maximum: 40 },
     } },
+  },
+  {
+    name: "save_co_profile", description: "Save or replace a contracting officer's profile card on their People record (Markdown). Use only public work records (SAM.gov notices, award data, agency announcements) and KCAPEX's history. Never include personal social media, family, home address, age or photos.",
+    input_schema: { type: "object", additionalProperties: false, required: ["contact_id", "profile", "sources"], properties: { contact_id: str, profile: { type: "string", description: "Markdown: role and office, what they buy, how they run their buys, KCAPEX's connection, 3 easy professional openers, open bids with them." }, sources: { type: "string", description: "Short list of where the facts came from." } } },
   },
   {
     name: "add_note", description: "Add a dated note to a bid, contact or subcontractor.",
@@ -105,6 +110,13 @@ async function runTool(store, name, input) {
     let text = JSON.stringify({ total: rows.length, shown: out.length, records: out });
     if (text.length > 40000) text = text.slice(0, 40000) + "…(truncated; narrow the query)";
     return [text, `Looked up ${input.collection.replace("_", " ")}${input.query ? ` for "${input.query}"` : ""}`];
+  }
+  if (name === "save_co_profile") {
+    const all = await readColl(store, "contacts"), d = all[input.contact_id];
+    if (!d || d.deleted) return bad("No contact with that id. Use app_search on contacts first.");
+    const profile = String(input.profile || "").trim(); if (profile.length < 80) return bad("The profile is too short.");
+    await writeDoc(store, "contacts", input.contact_id, { ...d, profile: profile.slice(0, 6000), profileSources: String(input.sources || "Public work records").slice(0, 300), profileUpdatedAt: nowIso(), updatedAt: nowIso() });
+    return [JSON.stringify({ ok: true }), `Saved a profile card for ${d.name || input.contact_id}`];
   }
   if (name === "add_note") {
     const c = COLL[input.collection]; if (!["opportunities", "contacts", "subs"].includes(c) || typeof input.id !== "string" || !String(input.text || "").trim()) return bad("Need a collection, a record id and note text.");

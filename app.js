@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.24-2';
+  const APP_VERSION = '2026.11.24-3';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -895,6 +895,7 @@
     const o = f.bid, chats = projChats(id), files = f.files;
     return `<div class="projwrap"><div class="chat-head"><button class="btn" data-action="proj-list">‹ Bid folders</button><div class="chat-title"></div><button class="btn" data-open="bids:${esc(f.bidId)}">✎ Bid</button></div>
       <div class="proj-top"><span class="pr-ic big">📁</span><div><h2>${esc(f.name)}</h2>${f.description ? `<p>${esc(f.description)}</p>` : ''}<p class="proj-bid">${esc(o.status || 'found')} · ${esc(dueTxt(o))}</p></div></div>
+      ${bidCOs(o).filter(([, c]) => c.profile).map(([cid, c]) => `<div class="panel proj-sec">${coCard(cid, c, false)}</div>`).join('')}
       <button class="btn primary proj-newchat" data-action="proj-chat">＋ New chat about this bid</button>
       <div class="panel proj-sec"><h3>Chats <span class="n">${chats.length}</span></h3>${chats.length ? chats.map((c) => `<button class="pc-row" data-chat="${esc(c.id)}"><b>${esc(c.title || 'Untitled')}</b><span>${esc(ago(c.updatedAt))} · ${(c.messages || []).length} messages</span></button>`).join('') : '<p class="muted">No chats yet. Start one above; Claude will have this bid’s files and instructions.</p>'}</div>
       <div class="panel proj-sec"><h3>Files <span class="n">${files.length} of ${MAX_FILES}</span></h3>
@@ -1360,6 +1361,7 @@
       ${rec && safeUrl(rec.link) ? `<p style="margin:12px 0 0"><a class="lnk" href="${esc(safeUrl(rec.link))}" target="_blank" rel="noopener">Open notice ↗</a></p>` : ''}
       ${rec && key === 'bids' ? bidExtras(rec) : ''}
       ${rec && key === 'contracts' ? contractExtras(id) : ''}
+      ${rec && key === 'people' ? coCard(id, rec, true) : ''}
       ${c.notes && rec ? `<div class="notes"><div class="field"><label for="f-note">Add a note</label><input id="f-note" name="__note" placeholder="Call, email, site visit, decision..." /></div>
         ${(Array.isArray(rec.notes) ? rec.notes : []).slice(-6).reverse().map((nt) => `<div class="note"><small>${esc(nt && nt.t)}</small>${esc(nt && nt.text)}</div>`).join('')}</div>` : ''}
       <div class="modal-actions">${rec ? '<button type="button" class="btn danger" data-action="delete">Delete</button>' : '<span></span>'}
@@ -1382,6 +1384,19 @@
     if (await saveDoc(c.coll, docId, body)) { modal.close(); toast(`${c.singular} saved`); }
   });
 
+  // ---------- Contracting officer profile cards ----------
+  // A short, professional card per CO: what they buy, how they run their buys, your history with their office and a few
+  // easy openers. Built only from public work records (SAM.gov notices, USASpending/FPDS awards, agency announcements)
+  // and KCAPEX's own history. Never personal social media, family, home address, age or photos.
+  function coCard(id, c, inPeople) {
+    if (!c) return '';
+    const when = c.profileUpdatedAt ? new Date(c.profileUpdatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const btn = `<button type="button" class="btn" data-action="co-build" data-id="${esc(id)}">${icon('ask')} ${c.profile ? 'Refresh profile with Claude' : 'Build profile with Claude'}</button>`;
+    if (!c.profile) return inPeople ? `<div class="xbox co-card"><h4>Profile</h4><p class="muted">No profile yet. Claude builds one from public work records (SAM.gov notices, awards from their office) and your history with them, nothing personal.</p>${btn}</div>` : '';
+    return `<div class="xbox co-card"><h4>👤 ${esc(c.name || 'Contracting officer')}${inPeople ? '' : ' · contracting officer'}</h4>${c.email ? `<p class="muted"><a class="lnk" href="mailto:${esc(c.email)}">${esc(c.email)}</a>${c.phone ? ` · ${esc(c.phone)}` : ''}</p>` : ''}
+      <div class="co-body">${md(c.profile)}</div><p class="muted co-src">${esc(c.profileSources || 'Public work records')}${when ? ` · updated ${esc(when)}` : ''}</p>${btn}</div>`;
+  }
+  const bidCOs = (o) => (o.contactIds || []).map((cid) => [cid, data.contacts[cid]]).filter(([, c]) => c);
   function bidExtras(o) {
     const box = (t, body) => body ? `<div class="xbox"><h4>${t}</h4>${body}</div>` : '';
     const subs = [...(o.subIds || []).map((x) => data.subs[x] && data.subs[x].company).filter(Boolean), ...(o.subsTxt ? [o.subsTxt] : [])];
@@ -1390,6 +1405,7 @@
     const intel = o.awardee || o.awardPrice ? `<div class="xrow"><span>Winner: <b>${esc(o.awardee || 'Not released')}</b></span>${o.awardPrice ? `<span>at <b>${money(o.awardPrice)}</b></span>` : ''}${o.awardPrice && oppPrice(o) ? `<span class="badge ${oppPrice(o) > o.awardPrice ? 'b-red' : 'b-green'}">ours ${money(oppPrice(o))} (${Math.round((oppPrice(o) - o.awardPrice) / o.awardPrice * 100)}%)</span>` : ''}</div>` : '';
     return `<div class="xboxes">
       <button type="button" class="btn askbid" data-action="ask-bid">${icon('ask')} Ask Claude about this bid</button>
+      ${bidCOs(o).map(([cid, c]) => coCard(cid, c, false)).join('')}
       <button type="button" class="btn" data-action="bid-project">📁 Open bid folder</button>
       ${needsApproval(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>${approvalTier(o) === 'owner' ? "Needs the majority owner's sign-off" : "Needs Kobe's approval"}</h4><p>${money(oppPrice(o))} · ${approvalTier(o) === 'owner' ? 'over $500K' : '$10K to $500K'}. Approve before it is submitted.</p><button type="button" class="btn primary" data-action="approve" data-tier="${approvalTier(o)}">Mark approved by ${approvalTier(o) === 'owner' ? 'the majority owner' : 'Kobe'}</button></div>` : ''}
       ${['found', 'reviewing', 'bid'].includes(o.status || 'found') && isPastOpp(o) ? `<div class="xbox" style="border-color:var(--red)"><h4>Past due and never sent</h4><p>Close it out so it stops counting as open.</p><button type="button" class="btn" data-action="nobid">Close as no-bid</button></div>` : ''}
@@ -1520,6 +1536,12 @@
       askClaude(`Tell me about bid ${o.sol || ''} ${o.title || ''}: where it stands, what it still needs before it goes in, the risks, and the next step.`);
     }
     else if (a === 'reload') { try { const regs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of regs) await r.update(); for (const k of await caches.keys()) await caches.delete(k); } catch (_) { /* ignore */ } location.replace('/?fresh=' + Date.now() + location.hash); }
+    else if (a === 'co-build') {
+      const cid = t.dataset.id, c = data.contacts[cid]; if (!c) return; modal.close();
+      const bids = liveOpps().filter((o) => (o.contactIds || []).includes(cid)).map((o) => `${o.sol || ''} ${o.title || ''}`.trim()).slice(0, 5);
+      chatId = null; chatProject = null; askFocus = null; projView = null;
+      askClaude(`Build a short, professional profile card for contracting officer ${c.name || ''} (${c.email || 'no email on file'}${c.agency ? ', ' + c.agency : ''}), contact id ${cid}.${bids.length ? ' Bids with them: ' + bids.join('; ') + '.' : ''} Use only public work records: search the web for their SAM.gov notices and their office's awards, and look up KCAPEX's history with their office in the app. Cover: their role and office, what they buy, how they run their buys (set-asides, notice pattern, bid windows), KCAPEX's connection, three easy professional openers, and open bids with them. Nothing personal: no social media, family, home, age or photos. Then save it with save_co_profile.`);
+    }
     else if (a === 'new-invoice') { const cid = t.dataset.id; modal.close(); openForm('invoices'); const sel = form.elements.contractId; if (sel) sel.value = cid; }
     else if (a === 'take') { t.disabled = true; await takeIn(t.dataset.id); }
     else if (a === 'dismiss') { const x = data.inbox[t.dataset.id]; if (x && await saveDoc('inbox', t.dataset.id, { ...x, state: 'dismissed' })) toast('Dismissed'); }

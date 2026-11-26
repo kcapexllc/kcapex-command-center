@@ -1,0 +1,16 @@
+{
+  "name": "KCApex Command Center",
+  "short_name": "KCApex",
+  "description": "KCAPEX internal GovCon pipeline: bids, quick-turn, follow-ups, people, subs and past performance.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f5fb",
+  "theme_color": "#2e1065",
+  "icons": [
+    { "src": "icons/kc-logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/kc-logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/kc-logo-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

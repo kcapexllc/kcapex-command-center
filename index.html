@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>KCAPEX Command Center</title>
+  <meta name="description" content="KCAPEX internal GovCon command center: bids, leads, jobs, contracts, messages and the Pipeline." />
+  <meta name="theme-color" content="#2e1065" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#140a24" media="(prefers-color-scheme: dark)" />
+  <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
+  <link rel="icon" href="icons/kc-logo-192.png" type="image/png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/kc-apple-touch-180.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="KCApex" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- The font loads without holding up the first screen; text shows right away and switches to Poppins when it arrives. -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="claude-shim.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <img src="icons/kc-logo-192.png" alt="" width="36" height="36" />
+        <div>
+          <div class="brand-name">KCAPEX</div>
+          <div class="brand-sub">Command Center</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu" title="Menu">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h11M4 17h16"/></svg>
+          </button>
+          <img class="topbar-logo" src="icons/kc-logo-192.png" alt="" width="28" height="28" />
+          <button class="title-btn" id="title-btn" aria-label="Scroll to top"><h1 id="view-title">Command Center</h1><span class="view-sub" id="view-sub"></span></button>
+        </div>
+        <div class="topbar-actions">
+          <span class="today" id="today"></span>
+          <span class="sync" id="sync">Connecting</span>
+          <button class="icon-btn claude-btn" id="claude-btn" aria-label="Ask Claude" title="Ask Claude">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2l2.2 5.6L20 9.8l-5.8 2.2L12 17.6l-2.2-5.6L4 9.8l5.8-2.2zM19 15l1 2.5 2.5 1-2.5 1L19 22l-1-2.5-2.5-1 2.5-1z"/></svg>
+          </button>
+          <button class="icon-btn" id="more-btn" aria-label="Options" aria-haspopup="menu" title="Options">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </header>
+      <section id="view" class="view" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <div class="top-menu-back" id="top-menu-back" hidden></div>
+  <div class="top-menu" id="top-menu" role="menu" hidden></div>
+  <div class="drawer-back" id="drawer-back" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Menu" aria-hidden="true"></aside>
+
+  <nav class="tabbar" id="tabbar" aria-label="Main navigation"></nav>
+  <button class="fab" id="fab" aria-label="Add new" hidden>
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+  </button>
+
+  <dialog id="modal" class="modal">
+    <form id="modal-form" method="dialog" class="modal-inner"></form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

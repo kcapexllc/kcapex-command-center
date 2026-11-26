@@ -51,7 +51,7 @@
 
   // ---------- Data (synced database) ----------
   const DBC = ['opportunities', 'inbox', 'contacts', 'subs', 'pastperf', 'leads', 'jobs', 'contracts', 'messages', 'invoices', 'visits', 'chats', 'projects'];
-  const APP_VERSION = '2026.11.24-3';
+  const APP_VERSION = '2026.11.26-1';
   const data = Object.fromEntries(DBC.map((c) => [c, {}]));
   const loadedColls = new Set();
   let db = null;
@@ -112,7 +112,20 @@
   const quoteSummary = (o) => { const q = Object.values(o.quotes || {}); if (!q.length) return ''; const got = q.filter((x) => x.status === 'received').length, out = q.filter((x) => x.status === 'requested').length;
     return [got ? got + ' in' : '', out ? out + ' out' : ''].filter(Boolean).join(', ') || q.length + ' closed'; };
   const isPastOpp = (o) => { const st = o.status || 'found'; if (!['found', 'reviewing', 'bid'].includes(st)) return true; const n = daysUntil(o.due); return n !== null && n < 0; };
-  const newItems = () => list('inbox').filter((x) => x.state === 'new' && !blockedPlace(x.place));
+  // Owner rule (26 Nov 2026): services only. Hide supply/product notices even if a feed lets one through.
+  const SVC_WORDS = /\b(services?|maint\w*|repairs?|install\w*|replace\w*|renovat\w*|construct\w*|removal|cleaning|janitor\w*|custodial|mowing|grounds|landscap\w*|pest|inspection|testing|abatement|remediation|demolition|painting|roofing|paving|hauling|moving|relocation|disposal|pumping|calibration|support|training)\b/i;
+  const PROD_WORDS = /\b(supply|supplies|subsistence|bread|milk|dairy|eggs|produce|citrus|meat|parts?|kits?|materials purchase|purchase of|brand name|licen[sc]es?|software|subscription|sale of)\b/i;
+  const isSupply = (x) => {
+    const t = String(x.title || ''), n = String(x.naics || ''), psc = String(x.psc || ''), sol = String(x.sol || '');
+    if (/^\d{4}$/.test(psc)) return true;
+    if (/^[A-Z][A-Z0-9]{3}\s*--/.test(t) || /^[A-Z]/.test(psc)) return false;
+    if (/^\d{2,4}\s*--/.test(t)) return true;
+    if (SVC_WORDS.test(t)) return false;
+    if (/^(31|32|33|42|44|45|111|112)/.test(n)) return true;
+    if (/^SPE/i.test(sol)) return true;
+    return PROD_WORDS.test(t);
+  };
+  const newItems = () => list('inbox').filter((x) => x.state === 'new' && !blockedPlace(x.place) && !isSupply(x));
   const quickItems = () => [
     ...newItems().filter(qtOk).map((x) => ({ ...x, _src: 'inbox' })),
     ...list('opportunities').filter((o) => !isPastOpp(o) && qtOk(o)).map((o) => ({ ...o, _src: 'opportunities' })),
